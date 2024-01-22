@@ -8,6 +8,7 @@ There are a few steps to setting up your system to generate new data. If you wan
 conda create -n atari python=3.9
 conda activate atari
 conda install pytorch torchvision torchaudio cpuonly -c pytorch
+conda install -c conda-forge libstdcxx-ng
 pip install stable-baselines3[extra]
 pip install rl_zoo3
 pip install gymnasium[accept-rom-license]

@@ -7,12 +7,15 @@ import importlib
 import os
 import sys
 
+import gymnasium as gym
 import numpy as np
 import torch as th
 import yaml
 from huggingface_sb3 import EnvironmentName
 from stable_baselines3.common.callbacks import tqdm
 from stable_baselines3.common.utils import set_random_seed
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.atari_wrappers import AtariWrapper
 
 import rl_zoo3.import_envs
 from rl_zoo3 import ALGOS, create_test_env, get_saved_hyperparams
@@ -24,7 +27,8 @@ from rl_zoo3.utils import StoreDict, get_model_path
 if __name__ == "__main__":
     # Collect arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", help="environment ID", type=EnvironmentName, default="CartPole-v1")
+    parser.add_argument("--env", help="environment ID", type=EnvironmentName,
+                        default="AsteroidsNoFrameskip-v4")
     parser.add_argument("-f", "--folder", help="Log folder", type=str, default="rl_trained_agents")
     parser.add_argument("--algo", help="RL Algorithm", default="ppo",
                         type=str, required=False, choices=list(ALGOS.keys()))
@@ -37,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", help="Verbose mode (0: no output, 1: INFO)",
                         default=1, type=int)
     parser.add_argument(
-        "--no-render", action="store_true", default=False, help="Do not render the environment (useful for tests)"
+        "--render", action="store_true", default=False, help="Render the environment (default is to not render)"
     )
     parser.add_argument("--deterministic", action="store_true",
                         default=False, help="Use deterministic actions")
@@ -102,20 +106,47 @@ if __name__ == "__main__":
         args.load_last_checkpoint,
     )
 
+    set_random_seed(args.seed)
+
+    stats_path = os.path.join(log_path, env_name)
+    hyperparams, maybe_stats_path = get_saved_hyperparams(
+        stats_path, norm_reward=args.norm_reward, test_mode=True)
+
+    # load env_kwargs if existing
+    env_kwargs = {}
+    args_path = os.path.join(log_path, env_name, "args.yml")
+    if os.path.isfile(args_path):
+        with open(args_path) as f:
+            loaded_args = yaml.load(f, Loader=yaml.UnsafeLoader)
+            if loaded_args["env_kwargs"] is not None:
+                env_kwargs = loaded_args["env_kwargs"]
+    # overwrite with command line arguments
+    if args.env_kwargs is not None:
+        env_kwargs.update(args.env_kwargs)
+
+    log_dir = args.reward_log if args.reward_log != "" else None
+
     env = create_test_env(
         env_name.gym_id,
         n_envs=args.n_envs,
         stats_path=maybe_stats_path,
         seed=args.seed,
         log_dir=log_dir,
-        should_render=not args.no_render,
+        should_render=args.render,
         hyperparams=hyperparams,
         env_kwargs=env_kwargs,
     )
 
-    model = ALGOS[algo].load(model_path, custom_objects=custom_objects,
-                             device=args.device, **kwargs)
+    model = ALGOS[algo].load(model_path, device=args.device)  # , **kwargs)
+
+    done = False
     obs = env.reset()
+
+    while not done:
+        action, _ = model.predict(obs)
+        obs, reward, done, info = env.step(action)
+        ram_val = env.get_attr('ale')[0].getRAM()
+        print(f'{ram_val}')
 
     # Episode #, timestep (opt), ROM state, action,
     # [0, 1, 254, 67, 98, ...]
