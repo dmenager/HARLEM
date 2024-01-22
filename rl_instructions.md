@@ -20,25 +20,25 @@ Because we don't need to keep it, hugging face
 
 ```bash
 # Space Invaders
-python -m rl_zoo3.load_from_hub --algo a2c --env SpaceInvadersNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo dqn --env SpaceInvadersNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo qrdqn --env SpaceInvadersNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo ppo --env SpaceInvadersNoFrameskip-v4 -orga sb3 -f logs/
+python -m rl_zoo3.load_from_hub --algo a2c --env SpaceInvadersNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo dqn --env SpaceInvadersNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo qrdqn --env SpaceInvadersNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo ppo --env SpaceInvadersNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
 # SeaQuest
-python -m rl_zoo3.load_from_hub --algo a2c --env SeaquestNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo dqn --env SeaquestNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo qrdqn --env SeaquestNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo ppo --env SeaquestNoFrameskip-v4 -orga sb3 -f logs/
+python -m rl_zoo3.load_from_hub --algo a2c --env SeaquestNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo dqn --env SeaquestNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo qrdqn --env SeaquestNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo ppo --env SeaquestNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
 # RoadRunner
-python -m rl_zoo3.load_from_hub --algo a2c --env RoadRunnerNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo dqn --env RoadRunnerNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo qrdqn --env RoadRunnerNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo ppo --env RoadRunnerNoFrameskip-v4 -orga sb3 -f logs/
+python -m rl_zoo3.load_from_hub --algo a2c --env RoadRunnerNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo dqn --env RoadRunnerNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo qrdqn --env RoadRunnerNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo ppo --env RoadRunnerNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
 # Asteroids
-python -m rl_zoo3.load_from_hub --algo a2c --env AsteroidsNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo dqn --env AsteroidsNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo qrdqn --env AsteroidsNoFrameskip-v4 -orga sb3 -f logs/
-python -m rl_zoo3.load_from_hub --algo ppo --env AsteroidsNoFrameskip-v4 -orga sb3 -f logs/
+python -m rl_zoo3.load_from_hub --algo a2c --env AsteroidsNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo dqn --env AsteroidsNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo qrdqn --env AsteroidsNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
+python -m rl_zoo3.load_from_hub --algo ppo --env AsteroidsNoFrameskip-v4 -orga sb3 -f rl_trained_agents/
 ```
 
 ## 3 Gennerate the data

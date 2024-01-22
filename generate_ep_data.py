@@ -25,7 +25,7 @@ if __name__ == "__main__":
     # Collect arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", help="environment ID", type=EnvironmentName, default="CartPole-v1")
-    parser.add_argument("-f", "--folder", help="Log folder", type=str, default="rl-trained-agents")
+    parser.add_argument("-f", "--folder", help="Log folder", type=str, default="rl_trained_agents")
     parser.add_argument("--algo", help="RL Algorithm", default="ppo",
                         type=str, required=False, choices=list(ALGOS.keys()))
     parser.add_argument("-n", "--n-timesteps", help="number of timesteps", default=1000, type=int)
@@ -116,3 +116,6 @@ if __name__ == "__main__":
     model = ALGOS[algo].load(model_path, custom_objects=custom_objects,
                              device=args.device, **kwargs)
     obs = env.reset()
+
+    # Episode #, timestep (opt), ROM state, action,
+    # [0, 1, 254, 67, 98, ...]
