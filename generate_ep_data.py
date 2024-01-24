@@ -9,6 +9,7 @@ import sys
 
 import gymnasium as gym
 import numpy as np
+import pandas as pd
 import torch as th
 import yaml
 from huggingface_sb3 import EnvironmentName
@@ -141,12 +142,43 @@ if __name__ == "__main__":
 
     done = False
     obs = env.reset()
+    states = []
+    actions = []
+    rewards = []
+    total_reward = 0
 
     while not done:
-        action, _ = model.predict(obs)
-        obs, reward, done, info = env.step(action)
+        # Get the current RAM state
         ram_val = env.get_attr('ale')[0].getRAM()
-        print(f'{ram_val}')
+        states.append(ram_val)
 
-    # Episode #, timestep (opt), ROM state, action,
+        # Get the action the agent wil take
+        action, _ = model.predict(obs)
+        actions.append(action)
+
+        # Execute the action
+        obs, reward, done, info = env.step(action)
+        total_reward += reward
+        rewards.append(reward)
+
+    # Get terminal state and add a terminal action
+    ram_val = env.get_attr('ale')[0].getRAM()
+    states.append(ram_val)
+    actions.append('terminal')
+    rewards.append(total_reward)
+
+    # Create the dataframe and save it
+    df = pd.DataFrame(
+        {
+            "Episode Number":   [1] * len(states),
+            "Timestep":         range(len(states)),
+            "RAM State":        states,
+            "Action":           actions,
+            "Rewards":          rewards
+        }
+    )
+
+    df.to_csv("./test_data.csv", index=False)
+
+    # Episode #, timestep (opt), RAM state, action,
     # [0, 1, 254, 67, 98, ...]
