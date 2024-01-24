@@ -117,7 +117,7 @@ if __name__ == "__main__":
     env_kwargs = {}
     args_path = os.path.join(log_path, env_name, "args.yml")
     if os.path.isfile(args_path):
-        with open(args_path) as f:
+        with open(args_path, encoding='UTF-8') as f:
             loaded_args = yaml.load(f, Loader=yaml.UnsafeLoader)
             if loaded_args["env_kwargs"] is not None:
                 env_kwargs = loaded_args["env_kwargs"]
