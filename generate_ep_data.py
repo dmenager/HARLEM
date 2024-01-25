@@ -201,7 +201,7 @@ if __name__ == "__main__":
                     algo=algorithm,
                     folder=args.folder,
                     num_episodes=args.n_episodes,
-                    log_dir="./logs",
+                    log_dir=f"./logs_{args.n_episodes}",
                     r_seed=args.seed,
                     deterministic=not args.stochastic,
                     render=args.render,
