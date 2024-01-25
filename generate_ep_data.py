@@ -190,9 +190,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.all:
-        print("in the works")
         ALGORITHMS = ["a2c", "dqn", "ppo", "qrdqn"]
-        ENVIRONMENTS = ["AsteroidsNoFrameskip-v4"]
+        ENVIRONMENTS = ["AsteroidsNoFrameskip-v4", "RoadRunnerNoFrameskip-v4",
+                        "SeaquestNoFrameskip-v4", "SpaceInvadersNoFrameskip-v4"]
 
         for algorithm in ALGORITHMS:
             for environment in ENVIRONMENTS:
