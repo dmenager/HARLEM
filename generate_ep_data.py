@@ -3,37 +3,151 @@ most code is copied over from https://github.com/DLR-RM/rl-baselines3-zoo/blob/m
 """
 
 import argparse
-import importlib
 import os
 import sys
 
-import gymnasium as gym
-import numpy as np
 import pandas as pd
-import torch as th
 import yaml
 from huggingface_sb3 import EnvironmentName
-from stable_baselines3.common.callbacks import tqdm
 from stable_baselines3.common.utils import set_random_seed
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.atari_wrappers import AtariWrapper
 
-import rl_zoo3.import_envs
 from rl_zoo3 import ALGOS, create_test_env, get_saved_hyperparams
-from rl_zoo3.exp_manager import ExperimentManager
-from rl_zoo3.load_from_hub import download_from_hub
 from rl_zoo3.utils import StoreDict, get_model_path
+
+
+def run_eval_episodes(str_env_name, algo, folder, num_episodes, log_dir, r_seed=0, deterministic=True, render=False, norm_reward=False, device="auto"):
+    """
+    """
+    # Build the environment
+    env_name = EnvironmentName(str_env_name)
+
+    _, model_path, log_path = get_model_path(
+        exp_id=0,
+        folder=folder,
+        algo=algo,
+        env_name=env_name,
+    )
+
+    set_random_seed(r_seed)
+
+    stats_path = os.path.join(log_path, env_name)
+    hyperparams, maybe_stats_path = get_saved_hyperparams(
+        stats_path, norm_reward=norm_reward, test_mode=True)
+
+    # load env_kwargs if existing
+    env_kwargs = {}
+    args_path = os.path.join(log_path, env_name, "args.yml")
+    if os.path.isfile(args_path):
+        with open(args_path, encoding='UTF-8') as f:
+            loaded_args = yaml.load(f, Loader=yaml.UnsafeLoader)
+            if loaded_args["env_kwargs"] is not None:
+                env_kwargs = loaded_args["env_kwargs"]
+
+    env = create_test_env(
+        env_name.gym_id,
+        n_envs=1,
+        stats_path=maybe_stats_path,
+        seed=r_seed,
+        should_render=render,
+        hyperparams=hyperparams,
+        env_kwargs=env_kwargs,
+    )
+
+    # Load the RL model
+    kwargs = dict(seed=r_seed)
+    off_policy_algos = ["qrdqn", "dqn", "ddpg", "sac", "her", "td3", "tqc"]
+    if algo in off_policy_algos:
+        # Dummy buffer size as we don't need memory to enjoy the trained agent
+        kwargs.update(dict(buffer_size=1))
+        # Hack due to breaking change in v1.6
+        # handle_timeout_termination cannot be at the same time
+        # with optimize_memory_usage
+        if "optimize_memory_usage" in hyperparams:
+            kwargs.update(optimize_memory_usage=False)
+
+    # Check if we are running python 3.8+
+    # we need to patch saved model under python 3.6/3.7 to load them
+    newer_python_version = sys.version_info.major == 3 and sys.version_info.minor >= 8
+
+    custom_objects = {}
+    if newer_python_version:
+        custom_objects = {
+            "learning_rate": 0.0,
+            "lr_schedule": lambda _: 0.0,
+            "clip_range": lambda _: 0.0,
+        }
+
+    if "HerReplayBuffer" in hyperparams.get("replay_buffer_class", ""):
+        kwargs["env"] = env
+
+    model = ALGOS[algo].load(model_path, custom_objects=custom_objects, device=device, **kwargs)
+
+    # Run through all the episodes
+    full_df = pd.DataFrame()
+
+    for ep in range(num_episodes):
+        done = False
+        obs = env.reset()
+        states = []
+        actions = []
+        rewards = []
+        total_reward = 0
+
+        while not done:
+            # Get the current RAM state and save it as a string to remove newlines. It will be saved
+            # in the csv as a string anyway, so pre-empting that conversion allows us to clean it up.
+            ram_val = env.get_attr('ale')[0].getRAM()
+            states.append(str(ram_val).replace("\n", ""))
+
+            # Get the action the agent wil take
+            action, _ = model.predict(obs, deterministic=deterministic)
+            actions.append(action[0])
+
+            # Execute the action
+            obs, reward, done, info = env.step(action)
+            total_reward += reward[0]
+            rewards.append(reward[0])
+
+        # Get terminal state and add a terminal action
+        ram_val = env.get_attr('ale')[0].getRAM()
+        states.append(str(ram_val).replace("\n", ""))
+        actions.append('terminal')
+        rewards.append(total_reward)
+
+        # Create the dataframe and save it
+        temp_df = pd.DataFrame(
+            {
+                "Episode Number":   [ep] * len(states),
+                "Timestep":         range(len(states)),
+                "RAM State":        states,
+                "Action":           actions,
+                "Rewards":          rewards
+            }
+        )
+
+        full_df = pd.concat([full_df, temp_df], ignore_index=True)
+
+        # Print status update
+        print(f"Completed Ep: {ep+1}/{num_episodes} for {algo}_{str_env_name}")
+
+    # Save the results to the desired folder
+    filename = f"{algo}_{str_env_name}_data.csv"
+    data_path = os.path.join(log_dir, filename)
+    full_df.to_csv(data_path, index=False)
 
 
 if __name__ == "__main__":
     # Collect arguments
     parser = argparse.ArgumentParser()
+    parser.add_argument("--all", action="store_true", default=False,
+                        help="Run all algorithms in all environments as described in docs.")
     parser.add_argument("--env", help="environment ID", type=EnvironmentName,
                         default="AsteroidsNoFrameskip-v4")
     parser.add_argument("-f", "--folder", help="Log folder", type=str, default="rl_trained_agents")
     parser.add_argument("--algo", help="RL Algorithm", default="ppo",
                         type=str, required=False, choices=list(ALGOS.keys()))
-    parser.add_argument("-n", "--n-timesteps", help="number of timesteps", default=1000, type=int)
+    parser.add_argument("-n", "--n-episodes",
+                        help="number of episodes to evaluate", default=1000, type=int)
     parser.add_argument(
         "--num-threads", help="Number of threads for PyTorch (-1 to use default)", default=-1, type=int)
     parser.add_argument("--n-envs", help="number of environments", default=1, type=int)
@@ -44,25 +158,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--render", action="store_true", default=False, help="Render the environment (default is to not render)"
     )
-    parser.add_argument("--deterministic", action="store_true",
-                        default=False, help="Use deterministic actions")
     parser.add_argument(
         "--device", help="PyTorch device to be use (ex: cpu, cuda...)", default="auto", type=str)
-    parser.add_argument(
-        "--load-best", action="store_true", default=False, help="Load best model instead of last model if available"
-    )
-    parser.add_argument(
-        "--load-checkpoint",
-        type=int,
-        help="Load checkpoint instead of last model if available, "
-        "you must pass the number of timesteps corresponding to it",
-    )
-    parser.add_argument(
-        "--load-last-checkpoint",
-        action="store_true",
-        default=False,
-        help="Load last checkpoint instead of last model if available",
-    )
     parser.add_argument("--stochastic", action="store_true",
                         default=False, help="Use stochastic actions")
     parser.add_argument(
@@ -92,93 +189,36 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    #
-    env_name: EnvironmentName = args.env
-    algo = args.algo
-    folder = args.folder
+    if args.all:
+        print("in the works")
+        ALGORITHMS = ["a2c", "dqn", "ppo", "qrdqn"]
+        ENVIRONMENTS = ["AsteroidsNoFrameskip-v4"]
 
-    _, model_path, log_path = get_model_path(
-        args.exp_id,
-        folder,
-        algo,
-        env_name,
-        args.load_best,
-        args.load_checkpoint,
-        args.load_last_checkpoint,
-    )
+        for algorithm in ALGORITHMS:
+            for environment in ENVIRONMENTS:
+                run_eval_episodes(
+                    str_env_name=environment,
+                    algo=algorithm,
+                    folder=args.folder,
+                    num_episodes=args.n_episodes,
+                    log_dir="./logs",
+                    r_seed=args.seed,
+                    deterministic=not args.stochastic,
+                    render=args.render,
+                    norm_reward=args.norm_reward,
+                    device=args.device
+                )
 
-    set_random_seed(args.seed)
-
-    stats_path = os.path.join(log_path, env_name)
-    hyperparams, maybe_stats_path = get_saved_hyperparams(
-        stats_path, norm_reward=args.norm_reward, test_mode=True)
-
-    # load env_kwargs if existing
-    env_kwargs = {}
-    args_path = os.path.join(log_path, env_name, "args.yml")
-    if os.path.isfile(args_path):
-        with open(args_path, encoding='UTF-8') as f:
-            loaded_args = yaml.load(f, Loader=yaml.UnsafeLoader)
-            if loaded_args["env_kwargs"] is not None:
-                env_kwargs = loaded_args["env_kwargs"]
-    # overwrite with command line arguments
-    if args.env_kwargs is not None:
-        env_kwargs.update(args.env_kwargs)
-
-    log_dir = args.reward_log if args.reward_log != "" else None
-
-    env = create_test_env(
-        env_name.gym_id,
-        n_envs=args.n_envs,
-        stats_path=maybe_stats_path,
-        seed=args.seed,
-        log_dir=log_dir,
-        should_render=args.render,
-        hyperparams=hyperparams,
-        env_kwargs=env_kwargs,
-    )
-
-    model = ALGOS[algo].load(model_path, device=args.device)  # , **kwargs)
-
-    done = False
-    obs = env.reset()
-    states = []
-    actions = []
-    rewards = []
-    total_reward = 0
-
-    while not done:
-        # Get the current RAM state
-        ram_val = env.get_attr('ale')[0].getRAM()
-        states.append(ram_val)
-
-        # Get the action the agent wil take
-        action, _ = model.predict(obs)
-        actions.append(action)
-
-        # Execute the action
-        obs, reward, done, info = env.step(action)
-        total_reward += reward
-        rewards.append(reward)
-
-    # Get terminal state and add a terminal action
-    ram_val = env.get_attr('ale')[0].getRAM()
-    states.append(ram_val)
-    actions.append('terminal')
-    rewards.append(total_reward)
-
-    # Create the dataframe and save it
-    df = pd.DataFrame(
-        {
-            "Episode Number":   [1] * len(states),
-            "Timestep":         range(len(states)),
-            "RAM State":        states,
-            "Action":           actions,
-            "Rewards":          rewards
-        }
-    )
-
-    df.to_csv("./test_data.csv", index=False)
-
-    # Episode #, timestep (opt), RAM state, action,
-    # [0, 1, 254, 67, 98, ...]
+    else:
+        run_eval_episodes(
+            str_env_name=args.env,
+            algo=args.algo,
+            folder=args.folder,
+            num_episodes=args.n_episodes,
+            log_dir="./logs",
+            r_seed=args.seed,
+            deterministic=not args.stochastic,
+            render=args.render,
+            norm_reward=args.norm_reward,
+            device=args.device
+        )
