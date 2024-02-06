@@ -15,7 +15,18 @@ from rl_zoo3 import ALGOS, create_test_env, get_saved_hyperparams
 from rl_zoo3.utils import StoreDict, get_model_path
 
 
-def run_eval_episodes(str_env_name, algo, folder, num_episodes, log_dir, r_seed=0, deterministic=True, render=False, norm_reward=False, device="auto"):
+def run_eval_episodes(
+        str_env_name: str,
+        algo: str,
+        folder: str,
+        num_episodes: int,
+        log_dir: str,
+        r_seed: int = 0,
+        deterministic: bool = True,
+        render: bool = False,
+        norm_reward: bool = False,
+        device: str = "auto"
+):
     """
     """
     # Build the environment
@@ -94,8 +105,9 @@ def run_eval_episodes(str_env_name, algo, folder, num_episodes, log_dir, r_seed=
         total_reward = 0
 
         while not done:
-            # Get the current RAM state and save it as a string to remove newlines. It will be saved
-            # in the csv as a string anyway, so pre-empting that conversion allows us to clean it up.
+            # Get the current RAM state and save it as a string to remove newlines. It will be
+            # saved in the csv as a string anyway, so pre-empting that conversion allows us
+            # to clean it up.
             ram_val = env.get_attr('ale')[0].getRAM()
             states.append(str(ram_val).replace("\n", ""))
 
@@ -104,7 +116,7 @@ def run_eval_episodes(str_env_name, algo, folder, num_episodes, log_dir, r_seed=
             actions.append(action[0])
 
             # Execute the action
-            obs, reward, done, info = env.step(action)
+            obs, reward, done, _ = env.step(action)
             total_reward += reward[0]
             rewards.append(reward[0])
 
