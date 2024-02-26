@@ -7,6 +7,7 @@ import os
 import sys
 
 import pandas as pd
+import numpy as np
 import yaml
 from huggingface_sb3 import EnvironmentName
 from stable_baselines3.common.utils import set_random_seed
@@ -87,6 +88,7 @@ def run_eval_episodes(
             "lr_schedule": lambda _: 0.0,
             "clip_range": lambda _: 0.0,
         }
+    np.set_printoptions(threshold=sys.maxsize)
 
     if "HerReplayBuffer" in hyperparams.get("replay_buffer_class", ""):
         kwargs["env"] = env
@@ -100,6 +102,7 @@ def run_eval_episodes(
         done = False
         obs = env.reset()
         states = []
+        observations = []
         actions = []
         rewards = []
         total_reward = 0
@@ -110,6 +113,9 @@ def run_eval_episodes(
             # to clean it up.
             ram_val = env.get_attr('ale')[0].getRAM()
             states.append(str(ram_val).replace("\n", ""))
+            gray_screen = env.get_attr('ale')[0].getScreenGrayscale()
+            observations.append(str(gray_screen).replace("\n", "").replace(
+                "] [", "").replace("[[", "[").replace("]]", "]"))
 
             # Get the action the agent wil take
             action, _ = model.predict(obs, deterministic=deterministic)
@@ -123,6 +129,8 @@ def run_eval_episodes(
         # Get terminal state and add a terminal action
         ram_val = env.get_attr('ale')[0].getRAM()
         states.append(str(ram_val).replace("\n", ""))
+        gray_screen = env.get_attr('ale')[0].getScreenGrayscale()
+        observations.append(str(gray_screen).replace("\n", ""))
         actions.append('terminal')
         rewards.append(total_reward)
 
@@ -132,6 +140,7 @@ def run_eval_episodes(
                 "Episode Number":   [ep] * len(states),
                 "Timestep":         range(len(states)),
                 "RAM State":        states,
+                "Gray Scale Image": observations,
                 "Action":           actions,
                 "Rewards":          rewards
             }
