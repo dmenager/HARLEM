@@ -29,6 +29,32 @@ def run_eval_episodes(
         device: str = "auto"
 ):
     """
+    This function runs the specified number of episodes in the singular environment. 
+
+    params:
+        str_env_name : str
+            The environment name provided as a string. Ex. "AsteroidsNoFrameskip-v4"
+        algo : str
+            The name of the algorithm used to train the agent being evaluated. This is needed to
+            properly load the trained agent. Ex. "ppo"
+        folder : str
+            The folder where the trained agent is located. Just the top level because the 
+            algorithm name and environment name will be used to complete the path.
+        num_episodes : int
+            The number of episodes to evaluate in the environment with the trained agent.
+        log_dir : str
+            Where the episode data will be saved.
+        r_seed : int = 0
+            Random seed for seeding the environment.
+        deterministic : bool = True
+            Whether to run the trained agent as a deterministic policy or not.
+        render : bool = False
+            Render the environment while running through the evaluation?
+        norm_reward : bool = False
+            Normalize the reward? This will scale things accross environments so all final scores 
+            are in the range 0-1.
+        device : str = "auto"
+            Run on GPU, CPU, or let the system decide based on what it can find?
     """
     # Build the environment
     env_name = EnvironmentName(str_env_name)
@@ -164,56 +190,38 @@ if __name__ == "__main__":
                         help="Run all algorithms in all environments as described in docs.")
     parser.add_argument("--env", help="environment ID", type=EnvironmentName,
                         default="AsteroidsNoFrameskip-v4")
-    parser.add_argument("-f", "--folder", help="Log folder", type=str, default="rl_trained_agents")
+    parser.add_argument("-f", "--folder", help="Log folder", type=str,
+                        default="rl_trained_agents")
     parser.add_argument("--algo", help="RL Algorithm", default="ppo",
                         type=str, required=False, choices=list(ALGOS.keys()))
     parser.add_argument("-n", "--n-episodes",
-                        help="number of episodes to evaluate", default=1000, type=int)
+                        help="number of episodes to evaluate", default=1, type=int)
     parser.add_argument(
-        "--num-threads", help="Number of threads for PyTorch (-1 to use default)", default=-1, type=int)
-    parser.add_argument("--n-envs", help="number of environments", default=1, type=int)
-    parser.add_argument(
-        "--exp-id", help="Experiment ID (default: 0: latest, -1: no exp folder)", default=0, type=int)
-    parser.add_argument("--verbose", help="Verbose mode (0: no output, 1: INFO)",
-                        default=1, type=int)
-    parser.add_argument(
-        "--render", action="store_true", default=False, help="Render the environment (default is to not render)"
-    )
+        "--render", action="store_true", default=False,
+        help="Render the environment (default is to not render)")
     parser.add_argument(
         "--device", help="PyTorch device to be use (ex: cpu, cuda...)", default="auto", type=str)
     parser.add_argument("--stochastic", action="store_true",
                         default=False, help="Use stochastic actions")
     parser.add_argument(
-        "--norm-reward", action="store_true", default=False, help="Normalize reward if applicable (trained with VecNormalize)"
-    )
+        "--norm-reward", action="store_true", default=False,
+        help="Normalize reward if applicable (trained with VecNormalize)")
     parser.add_argument("--seed", help="Random generator seed", type=int, default=0)
-    parser.add_argument("--reward-log", help="Where to log reward", default="", type=str)
-    parser.add_argument(
-        "--gym-packages",
-        type=str,
-        nargs="+",
-        default=[],
-        help="Additional external Gym environment package modules to import",
-    )
-    parser.add_argument(
-        "--env-kwargs", type=str, nargs="+", action=StoreDict, help="Optional keyword argument to pass to the env constructor"
-    )
-    parser.add_argument(
-        "--custom-objects", action="store_true", default=False, help="Use custom objects to solve loading issues"
-    )
-    parser.add_argument(
-        "-P",
-        "--progress",
-        action="store_true",
-        default=False,
-        help="if toggled, display a progress bar using tqdm and rich",
-    )
     args = parser.parse_args()
 
     if args.all:
-        ALGORITHMS = ["a2c", "dqn", "ppo", "qrdqn"]
-        ENVIRONMENTS = ["AsteroidsNoFrameskip-v4", "RoadRunnerNoFrameskip-v4",
-                        "SeaquestNoFrameskip-v4", "SpaceInvadersNoFrameskip-v4"]
+        ALGORITHMS = [
+            "a2c",
+            "dqn",
+            "ppo",
+            "qrdqn"
+        ]
+        ENVIRONMENTS = [
+            "AsteroidsNoFrameskip-v4",
+            "RoadRunnerNoFrameskip-v4",
+            "SeaquestNoFrameskip-v4",
+            "SpaceInvadersNoFrameskip-v4"
+        ]
 
         for algorithm in ALGORITHMS:
             for environment in ENVIRONMENTS:
