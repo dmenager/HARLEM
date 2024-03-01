@@ -181,6 +181,7 @@ def run_eval_episodes(
     filename = f"{algo}_{str_env_name}_data.csv"
     data_path = os.path.join(log_dir, filename)
     full_df.to_csv(data_path, index=False)
+    # full_df.to_pickle(data_path.replace(".csv", ".pkl"))  # Will save a pkl file if desired
 
 
 if __name__ == "__main__":
