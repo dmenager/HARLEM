@@ -13,6 +13,8 @@ import pickle
 import pandas as pd
 import gymnasium as gym
 import numpy as np
+import cl4py
+from cl4py import Symbol
 import os
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -79,27 +81,133 @@ if __name__ == "__main__":
     # Collect arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-expert", action="store_true", default=False,
-                        help="Run all algorithms in all environments as described in docs.")
+                        help="Train policy on only expert data.")
+    parser.add_argument("--train-hems", action="store_true", default=False,
+                        help="Train policy on only HEMS-generated data.")
+    parser.add_argument("--train-expert-hems", action="store_true", default=False,
+                        help="Train policy on expert data and then continue training with HEMS \
+                            data.")
+    parser.add_argument("--train-hems-expert", action="store_true", default=False,
+                        help="Train policy on HEMS data and then continue training with expert \
+                            data.")
+    parser.add_argument("--train-both", action="store_true", default=False,
+                        help="Train policy on combined expert and HEMS data.")
+    parser.add_argument("--algo", default="ppo", type=str,
+                        help="RL algorithm used to train the expert.")
+    parser.add_argument("--env", default="AsteroidsNoFrameskip-v4", type=str,
+                        help="Target environment.")
+    parser.add_argument("--n-epochs", default=300, type=int,
+                        help="The number of epochs for training. If training with a sequential \
+                            option, the number of epochs will be evenly split between the two.")
     parser.add_argument("--eval", action="store_true", default=False,
                         help="Run all algorithms in all environments as described in docs.")
     args = parser.parse_args()
     # SORT ARGS
-    ENV_NAME = 'AsteroidsNoFrameskip-v4'
-    ALGO = 'ppo'
+    ENV_NAME = args.env
+    ALGO = args.algo
     DEMO_DIR = os.path.join('./logs_100', ALGO+'_'+ENV_NAME+'_data.csv')
-    RENDER = False
+    RENDER = True
+    N_EPOCHS = args.n_epochs
+
+    # SETUP HEMS
+    # get a handle to the lisp subprocess with quicklisp loaded.
+    lisp = cl4py.Lisp(quicklisp=True, backtrace=True)
+
+    # Start quicklisp and import HEMS package
+    lisp.find_package('QL').quickload('HEMS')
+
+    # load hems and retain reference.
+    hems = lisp.find_package("HEMS")
 
     # PREPARE DATA
-    demos = pd.read_csv(DEMO_DIR)
-
-    env = gym.make(ENV_NAME, obs_type="ram")  # , render_mode='human')
+    env = gym.make(ENV_NAME, obs_type="ram", render_mode='human')
 
     pi = NNPolicy(env.observation_space.shape[0], 32, env.action_space.n)
 
-    # TRAINING POLICY: Expert data, no HEMS
+    # TRAINING POLICY: Expert data only, no HEMS
     if args.train_expert:
+        # Load expert data
+        demos = pd.read_csv(DEMO_DIR)
+
+        # Convert to database
         expert_dataset = ImitationDataset(demos)
-        trained_pi = train_with_bc(pi, expert_dataset, 300)
+
+        # Train on expert database
+        trained_pi = train_with_bc(pi, expert_dataset, N_EPOCHS)
+
+        # Save model
+        print("TBD")
+
+    # TRAINING POLICY: continued training with HEMS
+    if args.train_hems:
+        # Load HEMS model
+        hems_model = hems.load_eltm_from_file("filename")
+
+        # Sample from HEMS model
+        l = hems.py_sample(hems._car(hems.get_eltm()), hiddenstate=False,
+                           outputperceptsp=True)  # list
+
+        # Convert to database
+
+        # Train on database
+
+        # Save model
+        print("TBD")
+
+    # TRAINING POLICY: Expert data then HEMS
+    if args.train_expert_hems:
+        # Load expert data
+
+        # Convert to database
+        expert_dataset = ImitationDataset(demos)
+
+        # Train on database
+        trained_pi = train_with_bc(pi, expert_dataset, N_EPOCHS)
+
+        # Save model
+        print("TBD")
+
+    # TRAINING POLICY: Training with HEMS then expert data
+    if args.train_hems_expert:
+        # Load HEMS model
+
+        # Sample from HEMS model
+
+        # Convert to database
+
+        # Train on HEMS-generated database
+
+        # Load expert data
+
+        # Convert to database
+        expert_dataset = ImitationDataset(demos)
+
+        # Train on expert database
+        trained_pi = train_with_bc(pi, expert_dataset, N_EPOCHS)
+
+        # Save model
+        print("TBD")
+
+    # TRAINING POLICY: Expert and  HEMS data merged
+    if args.train_both:
+        # Load expert data
+
+        # Convert to database
+        expert_dataset = ImitationDataset(demos)
+
+        # Load HEMS model
+
+        # Sample from HEMS model
+
+        # Convert to database
+
+        # Merge databases
+
+        # Train on database
+        trained_pi = train_with_bc(pi, expert_dataset, N_EPOCHS)
+
+        # Save model
+        print("TBD")
 
     # EVALUATE POLICY
     if args.eval:
