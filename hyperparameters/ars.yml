@@ -1,0 +1,25 @@
+# Copied from DLR-RM/rl-baselines3-zoo hyperparameters
+# Tuned for Cartpole-v1
+Blackjack-v1:
+  n_envs: 1
+  n_timesteps: !!float 5e4
+  policy: 'LinearPolicy'
+  n_delta: 2
+
+CliffWalking-v0:
+  n_envs: 1
+  n_timesteps: !!float 5e4
+  policy: 'LinearPolicy'
+  n_delta: 2
+
+Taxi-v3:
+  n_envs: 1
+  n_timesteps: !!float 5e4
+  policy: 'LinearPolicy'
+  n_delta: 2
+
+FrozenLake-v1:
+  n_envs: 1
+  n_timesteps: !!float 5e4
+  policy: 'LinearPolicy'
+  n_delta: 2
