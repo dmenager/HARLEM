@@ -10,7 +10,7 @@ conda activate atari
 
 # Train CliffWalking experts
 python -m rl_zoo3.train --algo a2c --env CliffWalking-v0 --conf ./hyperparameters/a2c.yml -f rl_experts --seed 8 --eval-freq -1
-python -m rl_zoo3.train --algo ars --env CliffWalking-v0 --conf ./hyperparameters/ars.yml -f rl_experts --seed 8 --eval-freq -1
+# python -m rl_zoo3.train --algo ars --env CliffWalking-v0 --conf ./hyperparameters/ars.yml -f rl_experts --seed 8 --eval-freq -1  # because there is no time limit, ARS enters infinite loop
 python -m rl_zoo3.train --algo dqn --env CliffWalking-v0 --conf ./hyperparameters/dqn.yml -f rl_experts --seed 8 --eval-freq -1
 python -m rl_zoo3.train --algo ppo --env CliffWalking-v0 --conf ./hyperparameters/ppo.yml -f rl_experts --seed 8 --eval-freq -1
 python -m rl_zoo3.train --algo qrdqn --env CliffWalking-v0 --conf ./hyperparameters/qrdqn.yml -f rl_experts --seed 8 --eval-freq -1

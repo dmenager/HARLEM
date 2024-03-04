@@ -26,7 +26,7 @@ def decode(env_name, environment, observation):
         FrozenLake-v1:
             [row, col]
         CliffWalking-v0:
-
+            [row, col]
     """
     val = observation[0]
     if env_name == "Taxi-v3":
@@ -51,7 +51,7 @@ def decode(env_name, environment, observation):
 
     elif env_name == "CliffWalking-v0":
         position = np.unravel_index(val, environment.get_attr('shape')[0])
-        out = position
+        out = list(position)
 
     else:
         print(f"Environment {env_name} does not have a decoder yet.")
