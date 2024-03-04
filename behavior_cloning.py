@@ -37,15 +37,29 @@ class NNPolicy(nn.Module):
 
 
 class ImitationDataset(Dataset):
-    def __init__(self, demos):
+    def __init__(self):
         self.data = []
+
+    def build_from_atari(self, demos):
         for idx, state in enumerate(demos['RAM State']):
             action = demos['Action'][idx]  # [0]
             if action != 'terminal':
-                np_state = torch.tensor(np.fromstring(state.replace(
+                torch_state = torch.tensor(np.fromstring(state.replace(
                     '[', '').replace(']', ''), sep=' ', dtype='float32'), dtype=torch.float32)
-                np_action = torch.tensor(np.array(action, dtype='uint8'), dtype=torch.uint8)
-                self.data.append((np_state, np_action))
+                torch_action = torch.tensor(np.array(action, dtype='uint8'), dtype=torch.uint8)
+                self.data.append((torch_state, torch_action))
+
+    def build_from_toy_text(self, demos):
+        for idx, state in enumerate(demos['Observation']):
+            action = demos['Action'][idx]
+            if action != 'terminal':
+                torch_state = torch.tensor(np.fromstring(state.replace(
+                    '[', '').replace(']', ''), sep=' ', dtype='float32'), dtype=torch.float32)
+                torch_action = torch.tensor(int(action), dtype=torch.uint8)
+                self.data.append((torch_state, torch_action))
+
+    def merge_with(self, dataset):
+        self.data += dataset.data
 
     def __len__(self):
         return len(self.data)
@@ -94,7 +108,7 @@ if __name__ == "__main__":
                         help="Train policy on combined expert and HEMS data.")
     parser.add_argument("--algo", default="ppo", type=str,
                         help="RL algorithm used to train the expert.")
-    parser.add_argument("--env", default="AsteroidsNoFrameskip-v4", type=str,
+    parser.add_argument("--env", default="CliffWalking-v0", type=str,
                         help="Target environment.")
     parser.add_argument("--n-epochs", default=300, type=int,
                         help="The number of epochs for training. If training with a sequential \
@@ -102,10 +116,10 @@ if __name__ == "__main__":
     parser.add_argument("--eval", action="store_true", default=False,
                         help="Run all algorithms in all environments as described in docs.")
     args = parser.parse_args()
-    # SORT ARGS
+    # SORT ARGS AsteroidsNoFrameskip-v4
     ENV_NAME = args.env
     ALGO = args.algo
-    DEMO_DIR = os.path.join('./logs_100', ALGO+'_'+ENV_NAME+'_data.csv')
+    DEMO_DIR = os.path.join('./ep_data_1', ALGO+'_'+ENV_NAME+'_data.csv')
     RENDER = True
     N_EPOCHS = args.n_epochs
 
@@ -120,9 +134,12 @@ if __name__ == "__main__":
     hems = lisp.find_package("HEMS")
 
     # PREPARE DATA
-    env = gym.make(ENV_NAME, obs_type="ram", render_mode='human')
-
-    pi = NNPolicy(env.observation_space.shape[0], 32, env.action_space.n)
+    # Atari
+    # env = gym.make(ENV_NAME, obs_type="ram", render_mode='human')
+    # pi = NNPolicy(env.observation_space.shape[0], 32, env.action_space.n)
+    # Toy Text
+    env = gym.make(ENV_NAME)
+    pi = NNPolicy(1, 32, env.action_space.n)
 
     # TRAINING POLICY: Expert data only, no HEMS
     if args.train_expert:
@@ -130,7 +147,8 @@ if __name__ == "__main__":
         demos = pd.read_csv(DEMO_DIR)
 
         # Convert to database
-        expert_dataset = ImitationDataset(demos)
+        expert_dataset = ImitationDataset()
+        expert_dataset.build_from_toy_text(demos)
 
         # Train on expert database
         trained_pi = train_with_bc(pi, expert_dataset, N_EPOCHS)

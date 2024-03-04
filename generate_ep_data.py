@@ -388,6 +388,8 @@ def run_eval_episodes(
         print(f"Completed Ep: {ep+1}/{num_episodes} for {algo}_{str_env_name}")
 
     # Save the results to the desired folder
+    if not os.path.isdir(log_dir):
+        os.makedirs(log_dir)
     filename = f"{algo}_{str_env_name}_data.csv"
     data_path = os.path.join(log_dir, filename)
     full_df.to_csv(data_path, index=False)
@@ -427,6 +429,7 @@ if __name__ == "__main__":
 
     ALGORITHMS = [
         "a2c",
+        "ars",
         "dqn",
         "ppo",
         "qrdqn"
@@ -438,7 +441,7 @@ if __name__ == "__main__":
         "SpaceInvadersNoFrameskip-v4"
     ]
     TEXT_ENVIRONMENTS = [
-        "Blackjack-v1",
+        # "Blackjack-v1",
         "CliffWalking-v0",
         "Taxi-v3",
         "FrozenLake-v1"
@@ -467,6 +470,8 @@ if __name__ == "__main__":
     elif args.text:
         for algorithm in ALGORITHMS:
             for environment in TEXT_ENVIRONMENTS:
+                if (algorithm == "ars") and (environment == "CliffWalking-v0"):
+                    continue
                 run_eval_episodes(
                     str_env_name=environment,
                     algo=algorithm,
