@@ -350,7 +350,7 @@ def run_eval_episodes(
         while not done and steps < max_steps:
             # Get the state and observation
             hidden_state = decode(str_env_name, env, obs)
-            states.append(hidden_state)
+            states.append(str(hidden_state).replace(',', ''))
             observations.append(obs)
 
             # Get the action the agent wil take
@@ -365,7 +365,7 @@ def run_eval_episodes(
 
         # Get terminal state and add a terminal action
         hidden_state = decode(str_env_name, env, obs)
-        states.append(hidden_state)
+        states.append(str(hidden_state).replace(',', ''))
         observations.append(obs)
         actions.append('terminal')
         rewards.append(total_reward)
