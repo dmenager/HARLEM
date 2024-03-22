@@ -199,6 +199,7 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
 
     observations = []
     actions = []
+    action_counts = dict()
     failures = 0
     count = 0
     while (len(observations) < n_samples) and (failures < n_samples):
@@ -214,12 +215,18 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
         observations.append(obs)
         actions.append(act)
 
-    return observations, actions
+        if act in action_counts:
+            action_counts[act] = action_counts[act] + 1
+        else:
+            action_counts[act] = 1
+
+    return observations, actions, action_counts
 
 
 def sample_from_hems(hems_inst, n_samples):
     observations = []
     actions = []
+    action_counts = dict()
     failures = 0
     while (len(observations) < n_samples) and (failures < n_samples):
         hems_sample = hems_inst.py_sample(hems_inst._car(hems_inst.get_eltm()),
@@ -231,9 +238,29 @@ def sample_from_hems(hems_inst, n_samples):
 
         observations.append(obs)
         actions.append(act)
+        
+        if act in action_counts:
+            action_counts[act] = action_counts[act] + 1
+        else:
+            action_counts[act] = 1
 
-    return observations, actions
+    return observations, actions, action_counts
 
+def balance_action_samples(hems_inst, observations, actions, action_counts):
+    max_act = -1
+    new_observations = observations
+    new_actions = actions
+    for act, count in action_counts.items():
+        if count > max_act:
+            max_act = count
+    for act, count in action_counts.items():
+        diff = max_act - count
+        if diff > 0:
+            new_obs, new_acts, _ = sample_obs_from_action(hems_inst, act, diff)
+            new_observations = new_observations + new_obs
+            new_actions = new_actions + new_acts
+            action_counts[act] = action_counts[act] + diff
+    return new_observations, new_actions
 
 def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
     loader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4)
@@ -362,8 +389,9 @@ if __name__ == "__main__":
         hems.run_execution_trace(DEMO_DIR)
 
         # Sample from HEMS model
-        observations, actions = sample_from_hems(hems, NUM_HEMS_SAMPLES)
-
+        obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+        observations, actions = balance_action_samples(hems, obs, acts, act_counts)
+        
         # Convert to database
         hems_dataset = ImitationDataset()
         hems_dataset.build_from_hems(observations, actions)
@@ -397,8 +425,9 @@ if __name__ == "__main__":
         hems.run_execution_trace(DEMO_DIR)
 
         # Sample from HEMS model
-        observations, actions = sample_from_hems(hems, NUM_HEMS_SAMPLES)
-
+        obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+        observations, actions = balance_action_samples(hems, obs, acts, act_counts)
+        
         # Convert to database
         hems_dataset = ImitationDataset()
         hems_dataset.build_from_hems(observations, actions)
@@ -419,7 +448,8 @@ if __name__ == "__main__":
         hems.run_execution_trace(DEMO_DIR)
 
         # Sample from HEMS model
-        observations, actions = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+        obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+        observations, actions = balance_action_samples(hems, obs, acts, act_counts)
 
         # Convert to database
         hems_dataset = ImitationDataset()
@@ -464,7 +494,8 @@ if __name__ == "__main__":
         hems.run_execution_trace(DEMO_DIR)
 
         # Sample from HEMS model
-        observations, actions = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+        obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+        observations, actions = balance_action_samples(hems, obs, acts, act_counts)
 
         # Convert to database
         hems_dataset = ImitationDataset()
@@ -522,4 +553,4 @@ if __name__ == "__main__":
         hems.run_execution_trace(DEMO_DIR)
 
         # Sample from HEMS model
-        observations, actions = sample_obs_from_action(hems, '1', NUM_HEMS_SAMPLES)
+        observations, actions, action_counts = sample_obs_from_action(hems, '1', NUM_HEMS_SAMPLES)
