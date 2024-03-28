@@ -35,9 +35,11 @@ class NNPolicy(nn.Module):
 
     def forward(self, x):
         x = self.linear_1(x)
-        x = F.leaky_relu(x, 0.001)
+        # x = F.leaky_relu(x, 0.001)
+        x = F.tanh(x)
         x = self.linear_2(x)
-        x = F.leaky_relu(x, 0.001)
+        # x = F.leaky_relu(x, 0.001)
+        x = F.tanh(x)
         logits = self.linear_out(x)
         return Categorical(logits=logits)
 
@@ -112,6 +114,17 @@ class ImitationDataset(Dataset):
             torch_action = torch.tensor(action, dtype=torch.uint8)
             self.data.append((torch_state, torch_action))
 
+    def build_from_hems_csv(self, demos):
+        for hems_sample in demos['sample']:
+            print(type(hems_sample))
+            _, o, a = dissect_hems_sample(hems_sample)
+            if o is None or a is None:
+                continue
+            torch_state = torch.tensor([o], dtype=torch.float32)
+            torch_action = torch.tensor(a, dtype=torch.uint8)
+            print(f'state: {o}, action: {a}')
+            self.data.append((torch_state, torch_action))
+
     def merge_with(self, dataset):
         self.data += dataset.data
 
@@ -174,8 +187,7 @@ def dissect_hems_sample(sample):
     #     for key, value in state_dict:
 
     # Convert observation
-    #print("Num observations: {0}".format (len(obs_dict.items())))
-    if len(obs_dict.items()) > 0:
+    if len(obs_dict) > 0:
         obs_num = 0
         for key, value in obs_dict.items():
             if value == "NA":
@@ -188,12 +200,10 @@ def dissect_hems_sample(sample):
                 obs_num += 100 * int(value)
             else:
                 raise f"{key} is too large and unsupported"
+        if obs_num == 0.:
+            print(f'obs_dict: {obs_dict}, obs_num: {obs_num}')
         observation = obs_num
 
-    #print("Sample:")
-    #print(sample)
-    #print()
-    #print("state: {0} observation: {1} action: {2}".format(state, observation, action))
     return state, observation, action
 
 
@@ -208,7 +218,7 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
     action_counts = dict()
     failures = 0
     count = 0
-    while (len(observations) < n_samples): #and (failures < n_samples):
+    while (len(observations) < n_samples) and (failures < n_samples):
         hems_sample = hems_inst.py_conditional_sample(hems_inst.get_eltm(
         ), evidence_bn, "state-transitions", hiddenstatep=True, outputperceptsp=True)
 
@@ -218,7 +228,6 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
             failures += 1
             continue
 
-        #print("observation:\n{0}\naction:\n{1}\n".format(obs, act))
         observations.append(obs)
         actions.append(act)
 
@@ -235,24 +244,24 @@ def sample_from_hems(hems_inst, n_samples):
     actions = []
     action_counts = dict()
     failures = 0
-    while (len(observations) < n_samples): #and (failures < n_samples):
+    while (len(observations) < n_samples) and (failures < n_samples):
         hems_sample = hems_inst.py_sample(hems_inst._car(hems_inst.get_eltm()),
                                           hiddenstatep=True, outputperceptsp=True)
-        
         _, obs, act = dissect_hems_sample(hems_sample)
         if (obs is None) or (act is None):
             failures += 1
             continue
-        
+
         observations.append(obs)
         actions.append(act)
-        
+
         if act in action_counts:
             action_counts[act] = action_counts[act] + 1
         else:
             action_counts[act] = 1
 
     return observations, actions, action_counts
+
 
 def balance_action_samples(hems_inst, observations, actions, action_counts):
     max_act = -1
@@ -262,20 +271,20 @@ def balance_action_samples(hems_inst, observations, actions, action_counts):
         if count > max_act:
             max_act = count
     for act, count in action_counts.items():
-        print("action: {0}".format(act))
         diff = max_act - count
-        if diff > 0:
+        while diff > 0:
             new_obs, new_acts, _ = sample_obs_from_action(hems_inst, act, diff)
-            print(new_obs)
-            print()
-            new_observations = new_observations + new_obs
-            new_actions = new_actions + new_acts
-            action_counts[act] = action_counts[act] + diff
+            new_observations += new_obs
+            new_actions += new_acts
+            diff -= len(new_acts)
+            action_counts[act] = action_counts[act] + len(new_obs)
+    print(action_counts)
     return new_observations, new_actions
+
 
 def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
     loader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4)
-    optimizer = optim.Adam(policy.parameters(), lr=1e-3, weight_decay=0.0001)
+    optimizer = optim.Adam(policy.parameters(), lr=1e-3)  # , weight_decay=0.001)
     criterion = nn.CrossEntropyLoss()
 
     # TRAIN POLICY
@@ -283,10 +292,10 @@ def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
         running_loss = 0
         for i, data in enumerate(loader):
             s, a = data
-            optimizer.zero_grad()
             policy_dist = policy(s)
             loss = criterion(policy_dist.probs, a)
             running_loss += loss.item()
+            optimizer.zero_grad()
             loss.backward()
             if (epoch % 20) == 0 and (i % 100 == 0):
                 print(f'Epoch:{epoch} Batch:{i+1} Loss:{running_loss/20}')
@@ -313,6 +322,9 @@ if __name__ == "__main__":
                         help="Train policy on HEMS data and then continue training with expert \
                             data.")
     parser.add_argument("--train-both",
+                        action="store_true", default=False,
+                        help="Train policy on combined expert and HEMS data.")
+    parser.add_argument("--train-sampled-hems",
                         action="store_true", default=False,
                         help="Train policy on combined expert and HEMS data.")
     parser.add_argument("--algo",
@@ -342,7 +354,8 @@ if __name__ == "__main__":
     # SORT ARGS AsteroidsNoFrameskip-v4
     ENV_NAME = args.env
     ALGO = args.algo
-    DEMO_DIR = os.path.join('./ep_data_1', ALGO+'_'+ENV_NAME+'_data.csv')
+    DEMO_DIR = os.path.join('./ep_data_10', ALGO+'_'+ENV_NAME+'_data.csv')
+    HEMS_DIR = os.path.join('./hems_samples', 'samples 1.csv')
     RENDER = args.render
     N_EPOCHS = args.n_epochs
     TOY_TEXT_BOOL = False
@@ -365,7 +378,6 @@ if __name__ == "__main__":
     if ENV_NAME in TOY_TEXT_ENV_NAMES:
         # Toy Text
         TOY_TEXT_BOOL = True
-        #env = gym.make(ENV_NAME, render_mode='human')
         env = gym.make(ENV_NAME)
         pi = NNPolicy(1, 32, env.action_space.n)
     else:
@@ -403,7 +415,7 @@ if __name__ == "__main__":
         # Sample from HEMS model
         obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
         observations, actions = balance_action_samples(hems, obs, acts, act_counts)
-        
+
         # Convert to database
         hems_dataset = ImitationDataset()
         hems_dataset.build_from_hems(observations, actions)
@@ -439,7 +451,7 @@ if __name__ == "__main__":
         # Sample from HEMS model
         obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
         observations, actions = balance_action_samples(hems, obs, acts, act_counts)
-        
+
         # Convert to database
         hems_dataset = ImitationDataset()
         hems_dataset.build_from_hems(observations, actions)
@@ -524,6 +536,24 @@ if __name__ == "__main__":
         save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
         trained_pi.save(save_path)
 
+    # TRAINING POLICY: Expert data only, no HEMS
+    if args.train_sampled_hems:
+        # Load expert data
+        demos = pd.read_csv(HEMS_DIR, index_col=False, names=['sample'])
+
+        # Convert to database
+        sampled_dataset = ImitationDataset()
+        sampled_dataset.build_from_hems_csv(demos)
+
+        # print(expert_dataset.data)
+        # Train on expert database
+        trained_pi = train_with_bc(pi, sampled_dataset, N_EPOCHS)
+
+        # Save model
+        performance_name = f"sampled_hems_trained_{ENV_NAME}"
+        save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
+        trained_pi.save(save_path)
+
     # EVALUATE POLICY
     if args.eval:
         if args.load is not None:
@@ -532,7 +562,7 @@ if __name__ == "__main__":
             performance_name = args.load.replace(".pkl", "")
         max_steps = 1000  # env.spec.timestep_limit
         returns = []
-        for i in range(10):
+        for i in range(100):
             print('iter', i)
             reset_obs = env.reset()
             obs = reset_obs[0]
@@ -541,6 +571,7 @@ if __name__ == "__main__":
             steps = 0
             while (not (done or term)) and steps < max_steps:
                 pi_dist = trained_pi(torch.tensor([obs], dtype=torch.float32))
+                # print(f'obs: {obs}, dist: {pi_dist.probs}, mode: {pi_dist.mode.item()}')
                 if ENV_NAME in TOY_TEXT_ENV_NAMES:
                     a = pi_dist.mode.item()
                 else:
@@ -566,5 +597,3 @@ if __name__ == "__main__":
 
         # Sample from HEMS model
         observations, actions, action_counts = sample_obs_from_action(hems, '1', NUM_HEMS_SAMPLES)
-        
-# lisp = cl4py.Lisp(cmd=('sbcl', '--dynamic-space-size', '20000', '--script'), quicklisp=True, backtrace=True)
