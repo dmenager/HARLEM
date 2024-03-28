@@ -174,20 +174,26 @@ def dissect_hems_sample(sample):
     #     for key, value in state_dict:
 
     # Convert observation
-    obs_num = 0
-    for key, value in obs_dict.items():
-        if value == "NA":
-            return state, observation, action
-        if "VAR1" in key:
-            obs_num += int(value)
-        elif "VAR2" in key:
-            obs_num += 10 * int(value)
-        elif "VAR3" in key:
-            obs_num += 100 * int(value)
-        else:
-            raise f"{key} is too large and unsupported"
-    observation = obs_num
+    #print("Num observations: {0}".format (len(obs_dict.items())))
+    if len(obs_dict.items()) > 0:
+        obs_num = 0
+        for key, value in obs_dict.items():
+            if value == "NA":
+                return state, observation, action
+            if "VAR1" in key:
+                obs_num += int(value)
+            elif "VAR2" in key:
+                obs_num += 10 * int(value)
+            elif "VAR3" in key:
+                obs_num += 100 * int(value)
+            else:
+                raise f"{key} is too large and unsupported"
+        observation = obs_num
 
+    #print("Sample:")
+    #print(sample)
+    #print()
+    #print("state: {0} observation: {1} action: {2}".format(state, observation, action))
     return state, observation, action
 
 
@@ -202,7 +208,7 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
     action_counts = dict()
     failures = 0
     count = 0
-    while (len(observations) < n_samples) and (failures < n_samples):
+    while (len(observations) < n_samples): #and (failures < n_samples):
         hems_sample = hems_inst.py_conditional_sample(hems_inst.get_eltm(
         ), evidence_bn, "state-transitions", hiddenstatep=True, outputperceptsp=True)
 
@@ -212,6 +218,7 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
             failures += 1
             continue
 
+        #print("observation:\n{0}\naction:\n{1}\n".format(obs, act))
         observations.append(obs)
         actions.append(act)
 
@@ -228,14 +235,15 @@ def sample_from_hems(hems_inst, n_samples):
     actions = []
     action_counts = dict()
     failures = 0
-    while (len(observations) < n_samples) and (failures < n_samples):
+    while (len(observations) < n_samples): #and (failures < n_samples):
         hems_sample = hems_inst.py_sample(hems_inst._car(hems_inst.get_eltm()),
                                           hiddenstatep=True, outputperceptsp=True)
+        
         _, obs, act = dissect_hems_sample(hems_sample)
         if (obs is None) or (act is None):
             failures += 1
             continue
-
+        
         observations.append(obs)
         actions.append(act)
         
@@ -254,9 +262,12 @@ def balance_action_samples(hems_inst, observations, actions, action_counts):
         if count > max_act:
             max_act = count
     for act, count in action_counts.items():
+        print("action: {0}".format(act))
         diff = max_act - count
         if diff > 0:
             new_obs, new_acts, _ = sample_obs_from_action(hems_inst, act, diff)
+            print(new_obs)
+            print()
             new_observations = new_observations + new_obs
             new_actions = new_actions + new_acts
             action_counts[act] = action_counts[act] + diff
@@ -341,7 +352,7 @@ if __name__ == "__main__":
 
     # SETUP HEMS
     # get a handle to the lisp subprocess with quicklisp loaded.
-    lisp = cl4py.Lisp(quicklisp=True, backtrace=True)
+    lisp = cl4py.Lisp(cmd=('sbcl', '--dynamic-space-size', '20000', '--script'), quicklisp=True, backtrace=True)
 
     # Start quicklisp and import HEMS package
     lisp.find_package('QL').quickload('HEMS')
@@ -354,6 +365,7 @@ if __name__ == "__main__":
     if ENV_NAME in TOY_TEXT_ENV_NAMES:
         # Toy Text
         TOY_TEXT_BOOL = True
+        #env = gym.make(ENV_NAME, render_mode='human')
         env = gym.make(ENV_NAME)
         pi = NNPolicy(1, 32, env.action_space.n)
     else:
@@ -554,3 +566,5 @@ if __name__ == "__main__":
 
         # Sample from HEMS model
         observations, actions, action_counts = sample_obs_from_action(hems, '1', NUM_HEMS_SAMPLES)
+        
+# lisp = cl4py.Lisp(cmd=('sbcl', '--dynamic-space-size', '20000', '--script'), quicklisp=True, backtrace=True)
