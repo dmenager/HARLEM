@@ -21,6 +21,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import torch.utils.model_zoo as model_zoo
 import torch.onnx
+from scipy import stats
 
 
 class NNPolicy(nn.Module):
@@ -200,8 +201,8 @@ def dissect_hems_sample(sample):
                 obs_num += 100 * int(value)
             else:
                 raise f"{key} is too large and unsupported"
-        if obs_num == 0.:
-            print(f'obs_dict: {obs_dict}, obs_num: {obs_num}')
+        # if obs_num == 0.:
+        #     print(f'obs_dict: {obs_dict}, obs_num: {obs_num}')
         observation = obs_num
 
     return state, observation, action
@@ -288,20 +289,27 @@ def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
     criterion = nn.CrossEntropyLoss()
 
     # TRAIN POLICY
+    epoch_losses = []
     for epoch in range(num_epochs):
         running_loss = 0
+        epoch_loss = 0
         for i, data in enumerate(loader):
             s, a = data
             policy_dist = policy(s)
             loss = criterion(policy_dist.probs, a)
             running_loss += loss.item()
+            epoch_loss += loss.item()
             optimizer.zero_grad()
             loss.backward()
             if (epoch % 20) == 0 and (i % 100 == 0):
                 print(f'Epoch:{epoch} Batch:{i+1} Loss:{running_loss/20}')
                 running_loss = 0
             optimizer.step()
-    return policy
+        epoch_losses.append(epoch_loss)
+
+    epoch_training_loss = pd.DataFrame({"Epoch": range(num_epochs), "Loss": epoch_losses})
+
+    return policy, epoch_training_loss
 
 
 if __name__ == "__main__":
@@ -354,18 +362,20 @@ if __name__ == "__main__":
     # SORT ARGS AsteroidsNoFrameskip-v4
     ENV_NAME = args.env
     ALGO = args.algo
-    DEMO_DIR = os.path.join('./ep_data_10', ALGO+'_'+ENV_NAME+'_data.csv')
+    DEMO_DIR = os.path.join('./ep_data_1', ALGO+'_'+ENV_NAME+'_data.csv')
     HEMS_DIR = os.path.join('./hems_samples', 'samples 1.csv')
     RENDER = args.render
     N_EPOCHS = args.n_epochs
     TOY_TEXT_BOOL = False
     NUM_HEMS_SAMPLES = 2000
     MODEL_SAVE_LOC = "./bc_trained_agents/"
+    LOG_SAV_LOC = "./bc_training_logs/"
     performance_name = None
 
     # SETUP HEMS
     # get a handle to the lisp subprocess with quicklisp loaded.
-    lisp = cl4py.Lisp(quicklisp=True, backtrace=True)
+    lisp = cl4py.Lisp(cmd=('sbcl', '--dynamic-space-size', '20000',
+                      '--script'), quicklisp=True, backtrace=True)
 
     # Start quicklisp and import HEMS package
     lisp.find_package('QL').quickload('HEMS')
@@ -399,12 +409,16 @@ if __name__ == "__main__":
 
         # print(expert_dataset.data)
         # Train on expert database
-        trained_pi = train_with_bc(pi, expert_dataset, N_EPOCHS)
+        trained_pi, training_data = train_with_bc(pi, expert_dataset, N_EPOCHS)
 
         # Save model
         performance_name = f"expert_trained_{ENV_NAME}"
         save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
         trained_pi.save(save_path)
+
+        # Save training data
+        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
+        training_data.to_csv(log_path)
 
     # TRAINING POLICY: continued training with HEMS
     if args.train_hems:
@@ -422,12 +436,16 @@ if __name__ == "__main__":
         # print(hems_dataset.data)
 
         # Train on database
-        trained_pi = train_with_bc(pi, hems_dataset, N_EPOCHS)
+        trained_pi, training_data = train_with_bc(pi, hems_dataset, N_EPOCHS)
 
         # Save model
         performance_name = f"hems_trained_{ENV_NAME}"
         save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
         trained_pi.save(save_path)
+
+        # Save training data
+        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
+        training_data.to_csv(log_path)
 
     # TRAINING POLICY: Expert data then HEMS
     if args.train_expert_hems:
@@ -442,7 +460,7 @@ if __name__ == "__main__":
             expert_dataset.build_from_atari(demos)
 
         # Train on expert database
-        trained_expert_pi = train_with_bc(pi, expert_dataset, N_EPOCHS/2)
+        trained_expert_pi, expert_training_data = train_with_bc(pi, expert_dataset, N_EPOCHS/2)
 
         # Load HEMS model
         # hems_model = hems.load_eltm_from_file("filename")
@@ -458,12 +476,17 @@ if __name__ == "__main__":
         # print(hems_dataset.data)
 
         # Train on HEMS database
-        trained_pi = train_with_bc(trained_expert_pi, hems_dataset, N_EPOCHS/2)
+        trained_pi, hems_training_data = train_with_bc(trained_expert_pi, hems_dataset, N_EPOCHS/2)
 
         # Save model
         performance_name = f"expert_then_hems_trained_{ENV_NAME}"
         save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
         trained_pi.save(save_path)
+
+        # Save training data
+        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
+        training_data = pd.concat([expert_training_data, hems_training_data])
+        training_data.to_csv(log_path)
 
     # TRAINING POLICY: Training with HEMS then expert data
     if args.train_hems_expert:
@@ -481,7 +504,8 @@ if __name__ == "__main__":
         # print(hems_dataset.data)
 
         # Train on HEMS database
-        trained_hems_pi = train_with_bc(trained_expert_pi, hems_dataset, N_EPOCHS/2)
+        trained_hems_pi, hems_training_data = train_with_bc(
+            trained_expert_pi, hems_dataset, N_EPOCHS/2)
 
         # Load expert data
         demos = pd.read_csv(DEMO_DIR)
@@ -494,12 +518,18 @@ if __name__ == "__main__":
             expert_dataset.build_from_atari(demos)
 
         # Train on expert database
-        trained_pi = train_with_bc(trained_hems_pi, expert_dataset, N_EPOCHS/2)
+        trained_pi, expert_training_data = train_with_bc(
+            trained_hems_pi, expert_dataset, N_EPOCHS/2)
 
         # Save model
         performance_name = f"hems_then_expert_trained_{ENV_NAME}"
         save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
         trained_pi.save(save_path)
+
+        # Save training data
+        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
+        training_data = pd.concat([hems_training_data, expert_training_data])
+        training_data.to_csv(log_path)
 
     # TRAINING POLICY: Expert and  HEMS data merged
     if args.train_both:
@@ -529,12 +559,16 @@ if __name__ == "__main__":
         expert_dataset.merge_with(hems_dataset)
 
         # Train on database
-        trained_pi = train_with_bc(pi, expert_dataset, N_EPOCHS)
+        trained_pi, training_data = train_with_bc(pi, expert_dataset, N_EPOCHS)
 
         # Save model
         performance_name = f"expert_and_hems_trained_{ENV_NAME}"
         save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
         trained_pi.save(save_path)
+
+        # Save training data
+        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
+        training_data.to_csv(log_path)
 
     # TRAINING POLICY: Expert data only, no HEMS
     if args.train_sampled_hems:
@@ -547,7 +581,7 @@ if __name__ == "__main__":
 
         # print(expert_dataset.data)
         # Train on expert database
-        trained_pi = train_with_bc(pi, sampled_dataset, N_EPOCHS)
+        trained_pi, training_data = train_with_bc(pi, sampled_dataset, N_EPOCHS)
 
         # Save model
         performance_name = f"sampled_hems_trained_{ENV_NAME}"
@@ -562,13 +596,16 @@ if __name__ == "__main__":
             performance_name = args.load.replace(".pkl", "")
         max_steps = 1000  # env.spec.timestep_limit
         returns = []
-        for i in range(100):
+        mode_action = []
+        lengths = []
+        for i in range(1000):
             print('iter', i)
             reset_obs = env.reset()
             obs = reset_obs[0]
             done = term = False
             totalr = 0.
             steps = 0
+            actions = []
             while (not (done or term)) and steps < max_steps:
                 pi_dist = trained_pi(torch.tensor([obs], dtype=torch.float32))
                 # print(f'obs: {obs}, dist: {pi_dist.probs}, mode: {pi_dist.mode.item()}')
@@ -576,6 +613,7 @@ if __name__ == "__main__":
                     a = pi_dist.mode.item()
                 else:
                     a = pi_dist.mode.numpy()[0]
+                actions.append(a)
                 obs, r, done, term, _ = env.step(a)
                 if RENDER:
                     env.render()
@@ -586,10 +624,19 @@ if __name__ == "__main__":
                 # if steps >= max_steps:
                 #     break
             returns.append(totalr)
+            lengths.append(steps)
+            np_actions = np.array(actions)
+            mode_action.append(stats.mode(np_actions)[0])
 
         print('returns', returns)
         print('mean return', np.mean(returns))
         print('std of return', np.std(returns))
+
+        # Save return data
+        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_policy_eval.csv")
+        returns_data = pd.DataFrame(
+            {"Return": returns, "Length": lengths, "Most Common Action": mode_action})
+        returns_data.to_csv(log_path)
 
     # JUST TESTING STUFF
     if args.test:
