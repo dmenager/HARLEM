@@ -362,12 +362,12 @@ if __name__ == "__main__":
     # SORT ARGS AsteroidsNoFrameskip-v4
     ENV_NAME = args.env
     ALGO = args.algo
-    DEMO_DIR = os.path.join('./ep_data_1', ALGO+'_'+ENV_NAME+'_data.csv')
+    DEMO_DIR = os.path.join('./ep_data_8', ALGO+'_'+ENV_NAME+'_data.csv')
     HEMS_DIR = os.path.join('./hems_samples', 'samples 1.csv')
     RENDER = args.render
     N_EPOCHS = args.n_epochs
     TOY_TEXT_BOOL = False
-    NUM_HEMS_SAMPLES = 2000
+    NUM_HEMS_SAMPLES = 4000
     MODEL_SAVE_LOC = "./bc_trained_agents/"
     LOG_SAV_LOC = "./bc_training_logs/"
     performance_name = None
