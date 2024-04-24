@@ -346,6 +346,9 @@ if __name__ == "__main__":
                         default=300, type=int,
                         help="The number of epochs for training. If training with a sequential \
                             option, the number of epochs will be evenly split between the two.")
+    parser.add_argument("--random-seed",
+                        default=8, type=int,
+                        help="The random seed to use for the training.")
     parser.add_argument("--load",
                         default=None, type=str,
                         help="Run all algorithms in all environments as described in docs.")
@@ -362,7 +365,6 @@ if __name__ == "__main__":
     # SORT ARGS AsteroidsNoFrameskip-v4
     ENV_NAME = args.env
     ALGO = args.algo
-    #DEMO_DIR = os.path.join('./ep_data_8', ALGO+'_'+ENV_NAME+'_data.csv')
     DEMO_DIR = os.path.join('./ep_data_1', ALGO+'_'+ENV_NAME+'_data.csv')
     HEMS_DIR = os.path.join('./hems_samples', 'samples 1.csv')
     RENDER = args.render
@@ -372,6 +374,10 @@ if __name__ == "__main__":
     MODEL_SAVE_LOC = "./bc_trained_agents/"
     LOG_SAV_LOC = "./bc_training_logs/"
     performance_name = None
+
+    # Set random seeds
+    torch.manual_seed(args.random_seed)
+    np.random.seed(args.random_seed)
 
     # SETUP HEMS
     # get a handle to the lisp subprocess with quicklisp loaded.
