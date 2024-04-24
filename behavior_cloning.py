@@ -362,7 +362,8 @@ if __name__ == "__main__":
     # SORT ARGS AsteroidsNoFrameskip-v4
     ENV_NAME = args.env
     ALGO = args.algo
-    DEMO_DIR = os.path.join('./ep_data_8', ALGO+'_'+ENV_NAME+'_data.csv')
+    #DEMO_DIR = os.path.join('./ep_data_8', ALGO+'_'+ENV_NAME+'_data.csv')
+    DEMO_DIR = os.path.join('./ep_data_1', ALGO+'_'+ENV_NAME+'_data.csv')
     HEMS_DIR = os.path.join('./hems_samples', 'samples 1.csv')
     RENDER = args.render
     N_EPOCHS = args.n_epochs
