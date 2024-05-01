@@ -241,6 +241,7 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
 
 
 def sample_from_hems(hems_inst, n_samples):
+    print("Generating HEMS samples")
     observations = []
     actions = []
     action_counts = dict()
@@ -265,6 +266,7 @@ def sample_from_hems(hems_inst, n_samples):
 
 
 def balance_action_samples(hems_inst, observations, actions, action_counts):
+    print("Balancing Action Samples")
     max_act = -1
     new_observations = observations
     new_actions = actions
@@ -272,6 +274,7 @@ def balance_action_samples(hems_inst, observations, actions, action_counts):
         if count > max_act:
             max_act = count
     for act, count in action_counts.items():
+        print(f"Upsampling {act} action.")
         diff = max_act - count
         while diff > 0:
             new_obs, new_acts, _ = sample_obs_from_action(hems_inst, act, diff)
@@ -365,7 +368,7 @@ if __name__ == "__main__":
     # SORT ARGS AsteroidsNoFrameskip-v4
     ENV_NAME = args.env
     ALGO = args.algo
-    DEMO_DIR = os.path.join('./ep_data_1', ALGO+'_'+ENV_NAME+'_data.csv')
+    DEMO_DIR = os.path.join('./ep_data_10', ALGO+'_'+ENV_NAME+'_data.csv')
     HEMS_DIR = os.path.join('./hems_samples', 'samples 1.csv')
     RENDER = args.render
     N_EPOCHS = args.n_epochs
