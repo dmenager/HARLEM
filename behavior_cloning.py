@@ -22,7 +22,8 @@ from torch.utils.data import DataLoader
 import torch.utils.model_zoo as model_zoo
 import torch.onnx
 from scipy import stats
-
+from functools import partial
+from random import randint
 
 class NNPolicy(nn.Module):
     def __init__(self, state_dim, hidden_dim, action_dim):
@@ -189,7 +190,16 @@ def dissect_hems_sample(sample):
 
     # Convert observation
     if len(obs_dict) > 0:
-        obs_num = 0
+        obs_num = None
+        if len(obs_dict.items()) == 1:
+            for key, value in obs_dict.items():
+                if value == "NA":
+                    continue
+                elif obs_num == None:
+                    obs_num = int(value)
+                elif obs_num != -1:
+                    obs_num = None
+        '''
         for key, value in obs_dict.items():
             if value == "NA":
                 return state, observation, action
@@ -201,14 +211,15 @@ def dissect_hems_sample(sample):
                 obs_num += 100 * int(value)
             else:
                 raise f"{key} is too large and unsupported"
+        '''
         # if obs_num == 0.:
         #     print(f'obs_dict: {obs_dict}, obs_num: {obs_num}')
         observation = obs_num
-
+    print(f"Sampled state: {state}, observation: {observation}, action: {action}")
     return state, observation, action
 
 
-def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
+def sample_obs_from_action(hems_inst, action_name, n_samples=1):
     with tempfile.NamedTemporaryFile() as fp:
         fp.write(bytes(f"c1 = (percept-node action :value \"{str(action_name)}\")\n", 'utf-8'))
         fp.seek(0)
@@ -217,16 +228,16 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
     observations = []
     actions = []
     action_counts = dict()
+    obs_counts = dict()
     failures = 0
     count = 0
-    while (len(observations) < n_samples) and (failures < n_samples):
+    while (len(observations) < n_samples):
         hems_sample = hems_inst.py_conditional_sample(hems_inst.get_eltm(
         ), evidence_bn, "state-transitions", hiddenstatep=True, outputperceptsp=True)
 
         # convert
         _, obs, act = dissect_hems_sample(hems_sample)
         if (obs is None) or (act is None):
-            failures += 1
             continue
 
         observations.append(obs)
@@ -237,7 +248,12 @@ def sample_obs_from_action(hems_inst, action_name, n_samples=1000):
         else:
             action_counts[act] = 1
 
-    return observations, actions, action_counts
+        if obs in obs_counts:
+            obs_counts[obs] = obs_counts[obs] + 1
+        else:
+            obs_counts[obs] = 1
+
+    return observations, actions, action_counts, obs_counts
 
 
 def sample_from_hems(hems_inst, n_samples):
@@ -245,13 +261,14 @@ def sample_from_hems(hems_inst, n_samples):
     observations = []
     actions = []
     action_counts = dict()
-    failures = 0
-    while (len(observations) < n_samples) and (failures < n_samples):
+    obs_counts = dict()
+    while (len(observations) < n_samples):
+        print("Obtaining Sample")
         hems_sample = hems_inst.py_sample(hems_inst._car(hems_inst.get_eltm()),
                                           hiddenstatep=True, outputperceptsp=True)
+        print("Dissecting SAMPLE")
         _, obs, act = dissect_hems_sample(hems_sample)
         if (obs is None) or (act is None):
-            failures += 1
             continue
 
         observations.append(obs)
@@ -262,12 +279,59 @@ def sample_from_hems(hems_inst, n_samples):
         else:
             action_counts[act] = 1
 
-    return observations, actions, action_counts
+        if obs in obs_counts:
+            obs_counts[obs] = obs_counts[obs] + 1
+        else:
+            obs_counts[obs] = 1
 
+    return observations, actions, action_counts, obs_counts
 
-def balance_action_samples(hems_inst, observations, actions, action_counts):
+'''
+Balancing Observation Samples
+sampled state distribution
+{4: 1135, 0: 969, 8: 762, 14: 205, 13: 218, 9: 361, 2: 87, 10: 107, 3: 78, 6: 40, 1: 38}
+'''
+def balance_observation_samples (hems_inst, observations, actions, action_counts, obs_counts):
+    print("Balancing Observation Samples")
+    max_act = -1
+    max_obs = -1
+    new_observations = observations
+    new_actions = actions
+    for act, count in action_counts.items():
+        if count > max_act:
+            max_act = count
+    for obs, count in obs_counts.items():
+        if count > max_obs:
+            max_obs = count
+    print(obs_counts)
+    print(max_obs)
+    breakpoint()
+    repeat = True
+    while repeat:
+        for act, _ in action_counts.items():
+            new_obs, new_acts, act_c, obs_c = sample_obs_from_action(hems_inst, act, 1)
+            for (new_ob, new_act) in zip(new_obs, new_acts):
+                obs_dif = (max_obs - obs_counts[new_ob])
+                if obs_dif > 0:
+                    print(f"Upsampling {new_ob} observation.")
+                    print(f"Action: {new_act}")
+                    print()
+                    new_observations.append(new_ob)
+                    new_actions.append(new_act)
+                    obs_counts[new_ob] = obs_counts[new_ob] + 1
+        for o, c in obs_counts.items():
+            if c < max_obs:
+                repeat = True
+                break
+            else:
+                repeat = False
+    print(obs_counts)
+    return new_observations, new_actions
+
+def balance_action_samples(hems_inst, observations, actions, action_counts, obs_counts):
     print("Balancing Action Samples")
     max_act = -1
+    max_obs = -1
     new_observations = observations
     new_actions = actions
     for act, count in action_counts.items():
@@ -292,6 +356,7 @@ def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
     criterion = nn.CrossEntropyLoss()
 
     # TRAIN POLICY
+    print("Epoch,Batch,Loss")
     epoch_losses = []
     for epoch in range(num_epochs):
         running_loss = 0
@@ -305,7 +370,8 @@ def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
             optimizer.zero_grad()
             loss.backward()
             if (epoch % 20) == 0 and (i % 100 == 0):
-                print(f'Epoch:{epoch} Batch:{i+1} Loss:{running_loss/20}')
+                #print(f'Epoch:{epoch} Batch:{i+1} Loss:{running_loss/20}')
+                print(f'{epoch},{i+1},{running_loss/20}')
                 running_loss = 0
             optimizer.step()
         epoch_losses.append(epoch_loss)
@@ -313,6 +379,10 @@ def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
     epoch_training_loss = pd.DataFrame({"Epoch": range(num_epochs), "Loss": epoch_losses})
 
     return policy, epoch_training_loss
+
+def randints(count, *randint_args):
+    ri = partial(randint, *randint_args)
+    return [(ri(), ri()) for _ in range(count)]
 
 
 if __name__ == "__main__":
@@ -365,11 +435,11 @@ if __name__ == "__main__":
                         action="store_true", default=False,
                         help="Render the evaluation.")
     args = parser.parse_args()
-    # SORT ARGS AsteroidsNoFrameskip-v4
+
     ENV_NAME = args.env
     ALGO = args.algo
-    DEMO_DIR = os.path.join('./ep_data_10', ALGO+'_'+ENV_NAME+'_data.csv')
     HEMS_DIR = os.path.join('./hems_samples', 'samples 1.csv')
+    HEMS_MODEL_DIR = os.path.join("./HEMS_model", ALGO+'_'+ENV_NAME+"/","eltm.txt")
     RENDER = args.render
     N_EPOCHS = args.n_epochs
     TOY_TEXT_BOOL = False
@@ -378,13 +448,9 @@ if __name__ == "__main__":
     LOG_SAV_LOC = "./bc_training_logs/"
     performance_name = None
 
-    # Set random seeds
-    torch.manual_seed(args.random_seed)
-    np.random.seed(args.random_seed)
-
     # SETUP HEMS
     # get a handle to the lisp subprocess with quicklisp loaded.
-    lisp = cl4py.Lisp(cmd=('sbcl', '--dynamic-space-size', '20000',
+    lisp = cl4py.Lisp(cmd=('sbcl', '--dynamic-space-size', '30000',
                       '--script'), quicklisp=True, backtrace=True)
 
     # Start quicklisp and import HEMS package
@@ -395,262 +461,301 @@ if __name__ == "__main__":
 
     # SETUP ENV
     TOY_TEXT_ENV_NAMES = ["Blackjack-v1", "CliffWalking-v0", "FrozenLake-v1", "Taxi-v3"]
-    if ENV_NAME in TOY_TEXT_ENV_NAMES:
-        # Toy Text
-        TOY_TEXT_BOOL = True
-        env = gym.make(ENV_NAME)
-        pi = NNPolicy(1, 32, env.action_space.n)
-    else:
-        # Atari
-        env = gym.make(ENV_NAME, obs_type="ram", render_mode='human')
-        pi = NNPolicy(env.observation_space.shape[0], 32, env.action_space.n)
+    
+    # SORT ARGS AsteroidsNoFrameskip-v4
+    all_seeds=[]
+    all_agent_types=[]
+    all_returns=[]
+    all_lengths=[]
+    all_mode_action=[]
+    for seed in randints(10, 1, 100):
+        args.random_seed = seed
+        for agent in ['baseline', 'HEMS']:
+            if agent == 'baseline':
+                args.train_expert = True
+                args.train_hems = False
+                args.train_expert_hems = False
+                args.train_hems_expert = False
+                args.train_both = False
+                args.train_sampled_hems = False
+            elif agent = 'HEMS':
+                args.train_expert = False
+                args.train_hems = True
+                args.train_expert_hems = False
+                args.train_hems_expert = False
+                args.train_both = False
+                args.train_sampled_hems = False
+                
+            for ep_data in ['./ep_data_1', './ep_data_10', './ep_data_100', './ep_data_1000', './ep_data_10000']:
+                DEMO_DIR = os.path.join('./ep_data_10', ALGO+'_'+ENV_NAME+'_data.csv')
+                # Set random seeds
+                torch.manual_seed(args.random_seed)
+                np.random.seed(args.random_seed)
 
-    # TRAINING POLICY: Expert data only, no HEMS
-    if args.train_expert:
-        # Load expert data
-        demos = pd.read_csv(DEMO_DIR)
-
-        # Convert to database
-        expert_dataset = ImitationDataset()
-        if TOY_TEXT_BOOL:
-            expert_dataset.build_from_toy_text(demos)
-        else:
-            expert_dataset.build_from_atari(demos)
-
-        # print(expert_dataset.data)
-        # Train on expert database
-        trained_pi, training_data = train_with_bc(pi, expert_dataset, N_EPOCHS)
-
-        # Save model
-        performance_name = f"expert_trained_{ENV_NAME}"
-        save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
-        trained_pi.save(save_path)
-
-        # Save training data
-        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
-        training_data.to_csv(log_path)
-
-    # TRAINING POLICY: continued training with HEMS
-    if args.train_hems:
-        # Load HEMS model
-        # hems_model = hems.load_eltm_from_file("filename")
-        hems.run_execution_trace(DEMO_DIR)
-
-        # Sample from HEMS model
-        obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
-        observations, actions = balance_action_samples(hems, obs, acts, act_counts)
-
-        # Convert to database
-        hems_dataset = ImitationDataset()
-        hems_dataset.build_from_hems(observations, actions)
-        # print(hems_dataset.data)
-
-        # Train on database
-        trained_pi, training_data = train_with_bc(pi, hems_dataset, N_EPOCHS)
-
-        # Save model
-        performance_name = f"hems_trained_{ENV_NAME}"
-        save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
-        trained_pi.save(save_path)
-
-        # Save training data
-        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
-        training_data.to_csv(log_path)
-
-    # TRAINING POLICY: Expert data then HEMS
-    if args.train_expert_hems:
-        # Load expert data
-        demos = pd.read_csv(DEMO_DIR)
-
-        # Convert to database
-        expert_dataset = ImitationDataset()
-        if TOY_TEXT_BOOL:
-            expert_dataset.build_from_toy_text(demos)
-        else:
-            expert_dataset.build_from_atari(demos)
-
-        # Train on expert database
-        trained_expert_pi, expert_training_data = train_with_bc(pi, expert_dataset, N_EPOCHS/2)
-
-        # Load HEMS model
-        # hems_model = hems.load_eltm_from_file("filename")
-        hems.run_execution_trace(DEMO_DIR)
-
-        # Sample from HEMS model
-        obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
-        observations, actions = balance_action_samples(hems, obs, acts, act_counts)
-
-        # Convert to database
-        hems_dataset = ImitationDataset()
-        hems_dataset.build_from_hems(observations, actions)
-        # print(hems_dataset.data)
-
-        # Train on HEMS database
-        trained_pi, hems_training_data = train_with_bc(trained_expert_pi, hems_dataset, N_EPOCHS/2)
-
-        # Save model
-        performance_name = f"expert_then_hems_trained_{ENV_NAME}"
-        save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
-        trained_pi.save(save_path)
-
-        # Save training data
-        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
-        training_data = pd.concat([expert_training_data, hems_training_data])
-        training_data.to_csv(log_path)
-
-    # TRAINING POLICY: Training with HEMS then expert data
-    if args.train_hems_expert:
-        # Load HEMS model
-        # hems_model = hems.load_eltm_from_file("filename")
-        hems.run_execution_trace(DEMO_DIR)
-
-        # Sample from HEMS model
-        obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
-        observations, actions = balance_action_samples(hems, obs, acts, act_counts)
-
-        # Convert to database
-        hems_dataset = ImitationDataset()
-        hems_dataset.build_from_hems(observations, actions)
-        # print(hems_dataset.data)
-
-        # Train on HEMS database
-        trained_hems_pi, hems_training_data = train_with_bc(
-            trained_expert_pi, hems_dataset, N_EPOCHS/2)
-
-        # Load expert data
-        demos = pd.read_csv(DEMO_DIR)
-
-        # Convert to database
-        expert_dataset = ImitationDataset()
-        if TOY_TEXT_BOOL:
-            expert_dataset.build_from_toy_text(demos)
-        else:
-            expert_dataset.build_from_atari(demos)
-
-        # Train on expert database
-        trained_pi, expert_training_data = train_with_bc(
-            trained_hems_pi, expert_dataset, N_EPOCHS/2)
-
-        # Save model
-        performance_name = f"hems_then_expert_trained_{ENV_NAME}"
-        save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
-        trained_pi.save(save_path)
-
-        # Save training data
-        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
-        training_data = pd.concat([hems_training_data, expert_training_data])
-        training_data.to_csv(log_path)
-
-    # TRAINING POLICY: Expert and  HEMS data merged
-    if args.train_both:
-        # Load expert data
-        demos = pd.read_csv(DEMO_DIR)
-
-        # Convert to database
-        expert_dataset = ImitationDataset()
-        if TOY_TEXT_BOOL:
-            expert_dataset.build_from_toy_text(demos)
-        else:
-            expert_dataset.build_from_atari(demos)
-
-        # Load HEMS model
-        # hems_model = hems.load_eltm_from_file("filename")
-        hems.run_execution_trace(DEMO_DIR)
-
-        # Sample from HEMS model
-        obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
-        observations, actions = balance_action_samples(hems, obs, acts, act_counts)
-
-        # Convert to database
-        hems_dataset = ImitationDataset()
-        hems_dataset.build_from_hems(observations, actions)
-
-        # Merge databases
-        expert_dataset.merge_with(hems_dataset)
-
-        # Train on database
-        trained_pi, training_data = train_with_bc(pi, expert_dataset, N_EPOCHS)
-
-        # Save model
-        performance_name = f"expert_and_hems_trained_{ENV_NAME}"
-        save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
-        trained_pi.save(save_path)
-
-        # Save training data
-        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}.csv")
-        training_data.to_csv(log_path)
-
-    # TRAINING POLICY: Expert data only, no HEMS
-    if args.train_sampled_hems:
-        # Load expert data
-        demos = pd.read_csv(HEMS_DIR, index_col=False, names=['sample'])
-
-        # Convert to database
-        sampled_dataset = ImitationDataset()
-        sampled_dataset.build_from_hems_csv(demos)
-
-        # print(expert_dataset.data)
-        # Train on expert database
-        trained_pi, training_data = train_with_bc(pi, sampled_dataset, N_EPOCHS)
-
-        # Save model
-        performance_name = f"sampled_hems_trained_{ENV_NAME}"
-        save_path = os.path.join(MODEL_SAVE_LOC, f"{performance_name}.pkl")
-        trained_pi.save(save_path)
-
-    # EVALUATE POLICY
-    if args.eval:
-        if args.load is not None:
-            load_path = os.path.join(MODEL_SAVE_LOC, args.load)
-            trained_pi = NNPolicy.load(load_path)
-            performance_name = args.load.replace(".pkl", "")
-        max_steps = 1000  # env.spec.timestep_limit
-        returns = []
-        mode_action = []
-        lengths = []
-        for i in range(1000):
-            print('iter', i)
-            reset_obs = env.reset()
-            obs = reset_obs[0]
-            done = term = False
-            totalr = 0.
-            steps = 0
-            actions = []
-            while (not (done or term)) and steps < max_steps:
-                pi_dist = trained_pi(torch.tensor([obs], dtype=torch.float32))
-                # print(f'obs: {obs}, dist: {pi_dist.probs}, mode: {pi_dist.mode.item()}')
                 if ENV_NAME in TOY_TEXT_ENV_NAMES:
-                    a = pi_dist.mode.item()
+                    # Toy Text
+                    TOY_TEXT_BOOL = True
+                    env = gym.make(ENV_NAME)
+                    pi = NNPolicy(1, 32, env.action_space.n)
                 else:
-                    a = pi_dist.mode.numpy()[0]
-                actions.append(a)
-                obs, r, done, term, _ = env.step(a)
-                if RENDER:
-                    env.render()
-                totalr += r
-                steps += 1
-                # if steps % 100 == 0:
-                #     print("%i/%i" % (steps, max_steps))
-                # if steps >= max_steps:
-                #     break
-            returns.append(totalr)
-            lengths.append(steps)
-            np_actions = np.array(actions)
-            mode_action.append(stats.mode(np_actions)[0])
+                    # Atari
+                    env = gym.make(ENV_NAME, obs_type="ram", render_mode='human')
+                    pi = NNPolicy(env.observation_space.shape[0], 32, env.action_space.n)
 
-        print('returns', returns)
-        print('mean return', np.mean(returns))
-        print('std of return', np.std(returns))
+                # TRAINING POLICY: Expert data only, no HEMS
+                if args.train_expert:
+                    # Load expert data
+                    demos = pd.read_csv(DEMO_DIR)
+                    
+                    # Convert to database
+                    expert_dataset = ImitationDataset()
+                    if TOY_TEXT_BOOL:
+                        expert_dataset.build_from_toy_text(demos)
+                    else:
+                        expert_dataset.build_from_atari(demos)
+                        
+                    # print(expert_dataset.data)
+                    # Train on expert database
+                    trained_pi, training_data = train_with_bc(pi, expert_dataset, N_EPOCHS)
 
-        # Save return data
-        log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_policy_eval.csv")
-        returns_data = pd.DataFrame(
-            {"Return": returns, "Length": lengths, "Most Common Action": mode_action})
-        returns_data.to_csv(log_path)
+                    # Save model
+                    performance_name = f"expert_trained_{ENV_NAME}"
+                    save_path = os.path.join(MODEL_SAVE_LOC, f"{ep_data}_{performance_name}_{seed}.pkl")
+                    trained_pi.save(save_path)
+
+                    # Save training data
+                    log_path = os.path.join(LOG_SAV_LOC, f"{ep_data}_{performance_name}_{seed}.csv")
+                    training_data.to_csv(log_path)
+
+                # TRAINING POLICY: continued training with HEMS
+                if args.train_hems:
+                    # Load HEMS model
+                    # hems_model = hems.load_eltm_from_file("filename")
+                    print("Loading ELTM")
+                    hems.load_eltm_from_file(HEMS_MODEL_DIR)
+                    print("Done")
+                    # Sample from HEMS model
+                    obs, acts, act_counts, obs_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+                    observations, actions = balance_observation_samples(hems, obs, acts, act_counts, obs_counts)
+                    #observations, actions = balance_action_samples(hems, obs, acts, act_counts, obs_counts)
+                    
+                    # Convert to database
+                    hems_dataset = ImitationDataset()
+                    hems_dataset.build_from_hems(observations, actions)
+                    # print(hems_dataset.data)
+                    
+                    # Train on database
+                    trained_pi, training_data = train_with_bc(pi, hems_dataset, N_EPOCHS)
+                    
+                    # Save model
+                    performance_name = f"hems_trained_{ENV_NAME}"
+                    save_path = os.path.join(MODEL_SAVE_LOC, f"{ep_data}_{performance_name}_{seed}.pkl")
+                    trained_pi.save(save_path)
+
+                    # Save training data
+                    log_path = os.path.join(LOG_SAV_LOC, f"{ep_data}_{performance_name}_{seed}.csv")
+                    training_data.to_csv(log_path)
+
+                # TRAINING POLICY: Expert data then HEMS
+                if args.train_expert_hems:
+                    # Load expert data
+                    demos = pd.read_csv(DEMO_DIR)
+                    
+                    # Convert to database
+                    expert_dataset = ImitationDataset()
+                    if TOY_TEXT_BOOL:
+                        expert_dataset.build_from_toy_text(demos)
+                    else:
+                        expert_dataset.build_from_atari(demos)
+
+                    # Train on expert database
+                    trained_expert_pi, expert_training_data = train_with_bc(pi, expert_dataset, N_EPOCHS/2)
+                    
+                    # Load HEMS model
+                    # hems_model = hems.load_eltm_from_file("filename")
+                    hems.run_execution_trace(DEMO_DIR)
+
+                    # Sample from HEMS model
+                    obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+                    observations, actions = balance_action_samples(hems, obs, acts, act_counts)
+
+                    # Convert to database
+                    hems_dataset = ImitationDataset()
+                    hems_dataset.build_from_hems(observations, actions)
+                    # print(hems_dataset.data)
+                    
+                    # Train on HEMS database
+                    trained_pi, hems_training_data = train_with_bc(trained_expert_pi, hems_dataset, N_EPOCHS/2)
+                    
+                    # Save model
+                    performance_name = f"expert_then_hems_trained_{ENV_NAME}"
+                    save_path = os.path.join(MODEL_SAVE_LOC, f"{ep_data}_{performance_name}_{seed}.pkl")
+                    trained_pi.save(save_path)
+
+                    # Save training data
+                    log_path = os.path.join(LOG_SAV_LOC, f"{ep_data}_{performance_name}_{seed}.csv")
+                    training_data = pd.concat([expert_training_data, hems_training_data])
+                    training_data.to_csv(log_path)
+
+                # TRAINING POLICY: Training with HEMS then expert data
+                if args.train_hems_expert:
+                    # Load HEMS model
+                    # hems_model = hems.load_eltm_from_file("filename")
+                    hems.run_execution_trace(DEMO_DIR)
+                    
+                    # Sample from HEMS model
+                    obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+                    observations, actions = balance_action_samples(hems, obs, acts, act_counts)
+                    
+                    # Convert to database
+                    hems_dataset = ImitationDataset()
+                    hems_dataset.build_from_hems(observations, actions)
+                    # print(hems_dataset.data)
+                    
+                    # Train on HEMS database
+                    trained_hems_pi, hems_training_data = train_with_bc(
+                        trained_expert_pi, hems_dataset, N_EPOCHS/2)
+
+                    # Load expert data
+                    demos = pd.read_csv(DEMO_DIR)
+                    
+                    # Convert to database
+                    expert_dataset = ImitationDataset()
+                    if TOY_TEXT_BOOL:
+                        expert_dataset.build_from_toy_text(demos)
+                    else:
+                        expert_dataset.build_from_atari(demos)
+                        
+                    # Train on expert database
+                    trained_pi, expert_training_data = train_with_bc(
+                        trained_hems_pi, expert_dataset, N_EPOCHS/2)
+                    
+                    # Save model
+                    performance_name = f"hems_then_expert_trained_{ENV_NAME}"
+                    save_path = os.path.join(MODEL_SAVE_LOC, f"{ep_data}_{performance_name}_{seed}.pkl")
+                    trained_pi.save(save_path)
+
+                    # Save training data
+                    log_path = os.path.join(LOG_SAV_LOC, f"{ep_data}_{performance_name}_{seed}.csv")
+                    training_data = pd.concat([hems_training_data, expert_training_data])
+                    training_data.to_csv(log_path)
+                    
+                # TRAINING POLICY: Expert and  HEMS data merged
+                if args.train_both:
+                    # Load expert data
+                    demos = pd.read_csv(DEMO_DIR)
+                    
+                    # Convert to database
+                    expert_dataset = ImitationDataset()
+                    if TOY_TEXT_BOOL:
+                        expert_dataset.build_from_toy_text(demos)
+                    else:
+                        expert_dataset.build_from_atari(demos)
+                        
+                    # Load HEMS model
+                    # hems_model = hems.load_eltm_from_file("filename")
+                    hems.run_execution_trace(DEMO_DIR)
+                    
+                    # Sample from HEMS model
+                    obs, acts, act_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+                    observations, actions = balance_action_samples(hems, obs, acts, act_counts)
+                    
+                    # Convert to database
+                    hems_dataset = ImitationDataset()
+                    hems_dataset.build_from_hems(observations, actions)
+                    
+                    # Merge databases
+                    expert_dataset.merge_with(hems_dataset)
+                    
+                    # Train on database
+                    trained_pi, training_data = train_with_bc(pi, expert_dataset, N_EPOCHS)
+
+                    # Save model
+                    performance_name = f"expert_and_hems_trained_{ENV_NAME}"
+                    save_path = os.path.join(MODEL_SAVE_LOC, f"{ep_data}_{performance_name}_{seed}.pkl")
+                    trained_pi.save(save_path)
+
+                    # Save training data
+                    log_path = os.path.join(LOG_SAV_LOC, f"{ep_data}_{performance_name}_{seed}.csv")
+                    training_data.to_csv(log_path)
+
+                # TRAINING POLICY: Expert data only, no HEMS
+                if args.train_sampled_hems:
+                    # Load expert data
+                    demos = pd.read_csv(HEMS_DIR, index_col=False, names=['sample'])
+                    
+                    # Convert to database
+                    sampled_dataset = ImitationDataset()
+                    sampled_dataset.build_from_hems_csv(demos)
+                    
+                    # print(expert_dataset.data)
+                    # Train on expert database
+                    trained_pi, training_data = train_with_bc(pi, sampled_dataset, N_EPOCHS)
+                    
+                    # Save model
+                    performance_name = f"sampled_hems_trained_{ENV_NAME}"
+                    save_path = os.path.join(MODEL_SAVE_LOC, f"{ep_data}_{performance_name}_{seed}.pkl")
+                    trained_pi.save(save_path)
+
+
+                # EVALUATE POLICY
+                if args.eval:
+                    if args.load is not None:
+                        load_path = os.path.join(MODEL_SAVE_LOC, args.load)
+                        trained_pi = NNPolicy.load(load_path)
+                        performance_name = args.load.replace(".pkl", "")
+                    max_steps = 1000  # env.spec.timestep_limit
+                    returns = []
+                    mode_action = []
+                    lengths = []
+                    for i in range(1000):
+                        print('iter', i)
+                        reset_obs = env.reset()
+                        obs = reset_obs[0]
+                        done = term = False
+                        totalr = 0.
+                        steps = 0
+                        actions = []
+                        while (not (done or term)) and steps < max_steps:
+                            pi_dist = trained_pi(torch.tensor([obs], dtype=torch.float32))
+                            # print(f'obs: {obs}, dist: {pi_dist.probs}, mode: {pi_dist.mode.item()}')
+                            if ENV_NAME in TOY_TEXT_ENV_NAMES:
+                                a = pi_dist.mode.item()
+                            else:
+                                a = pi_dist.mode.numpy()[0]
+                            actions.append(a)
+                            obs, r, done, term, _ = env.step(a)
+                            if RENDER:
+                                env.render()
+                            totalr += r
+                            steps += 1
+                            # if steps % 100 == 0:
+                            #     print("%i/%i" % (steps, max_steps))
+                            # if steps >= max_steps:
+                            #     break
+                        returns.append(totalr)
+                        lengths.append(steps)
+                        np_actions = np.array(actions)
+                        mode_action.append(stats.mode(np_actions)[0])
+
+                    print('returns', returns)
+                    print('mean return', np.mean(returns))
+                    print('std of return', np.std(returns))
+
+                    # Save return data
+                    all_seeds.extend(seeds)
+                    all_agent_types.extend(agent_types)
+                    all_returns.extend(returns)
+                    all_lengths.extend(lengths)
+                    all_mode_action.extend(mode_action)
+    log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_policy_eval.csv")
+    returns_data = pd.DataFrame(
+        {"Seed": all_seeds,"Agent": all_agent_types, "Return": all_returns, "Length": all_lengths, "Most Common Action": all_mode_action})
+    returns_data.to_csv(log_path)
 
     # JUST TESTING STUFF
     if args.test:
         hems.run_execution_trace(DEMO_DIR)
-
+        
         # Sample from HEMS model
         observations, actions, action_counts = sample_obs_from_action(hems, '1', NUM_HEMS_SAMPLES)
