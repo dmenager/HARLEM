@@ -24,6 +24,7 @@ import torch.onnx
 from scipy import stats
 from functools import partial
 from random import randint
+import inflect
 
 class NNPolicy(nn.Module):
     def __init__(self, state_dim, hidden_dim, action_dim):
@@ -218,6 +219,44 @@ def dissect_hems_sample(sample):
     print(f"Sampled state: {state}, observation: {observation}, action: {action}")
     return state, observation, action
 
+def sample_obs(hems_inst, obs, n_samples=1):
+    with tempfile.NamedTemporaryFile() as fp:
+        p = inflect.engine()
+        observed = p.number_to_words(obs).replace('-', '_').replace(' ', '_').upper()
+        fp.write(bytes(f"c1 = (percept-node {observed} :value \"{obs}\")\n", 'utf-8'))
+        fp.write(bytes(f"c2 = (relation-node NUMBER_1 :value \"{obs}\")\n", 'utf-8'))
+        fp.write(bytes(f"c2 -> c1\n", 'utf-8'))
+        fp.seek(0)
+        evidence_bn = hems_inst.compile_program_from_file(fp.name)
+    observations = []
+    actions = []
+    action_counts = dict()
+    obs_counts = dict()
+    failures = 0
+    count = 0
+    while (len(observations) < n_samples):
+        hems_sample = hems_inst.py_conditional_sample(hems_inst.get_eltm(
+        ), evidence_bn, "state-transitions", hiddenstatep=True, outputperceptsp=True)
+
+        # convert
+        _, obs, act = dissect_hems_sample(hems_sample)
+        if (obs is None) or (act is None):
+            continue
+
+        observations.append(obs)
+        actions.append(act)
+
+        if act in action_counts:
+            action_counts[act] = action_counts[act] + 1
+        else:
+            action_counts[act] = 1
+
+        if obs in obs_counts:
+            obs_counts[obs] = obs_counts[obs] + 1
+        else:
+            obs_counts[obs] = 1
+
+    return observations, actions, action_counts, obs_counts
 
 def sample_obs_from_action(hems_inst, action_name, n_samples=1):
     with tempfile.NamedTemporaryFile() as fp:
@@ -262,15 +301,30 @@ def sample_from_hems(hems_inst, n_samples):
     actions = []
     action_counts = dict()
     obs_counts = dict()
+    obs_act_map = dict()
+    obs_act_map[0] = 0
+    obs_act_map[1] = 3
+    obs_act_map[2] = 1
+    obs_act_map[3] = 3
+    obs_act_map[4] = 0
+    obs_act_map[6] = 0
+    obs_act_map[8] = 3
+    obs_act_map[9] = 1
+    obs_act_map[10] = 0
+    obs_act_map[13] = 2
+    obs_act_map[14] = 1
     while (len(observations) < n_samples):
-        print("Obtaining Sample")
         hems_sample = hems_inst.py_sample(hems_inst._car(hems_inst.get_eltm()),
                                           hiddenstatep=True, outputperceptsp=True)
-        print("Dissecting SAMPLE")
         _, obs, act = dissect_hems_sample(hems_sample)
         if (obs is None) or (act is None):
             continue
-
+        if int(act) != obs_act_map[int(obs)]:
+            print(f"reference observation: {int(obs)}")
+            print(f"reference action: {obs_act_map[int(obs)]}")
+            print(f"inferred action: {int(act)}")
+            print("failure")
+            breakpoint()
         observations.append(obs)
         actions.append(act)
 
@@ -303,19 +357,37 @@ def balance_observation_samples (hems_inst, observations, actions, action_counts
     for obs, count in obs_counts.items():
         if count > max_obs:
             max_obs = count
-    print(obs_counts)
-    print(max_obs)
-    breakpoint()
+
+    obs_act_map = dict()
+    obs_act_map[0] = 0
+    obs_act_map[1] = 3
+    obs_act_map[2] = 1
+    obs_act_map[3] = 3
+    obs_act_map[4] = 0
+    obs_act_map[6] = 0
+    obs_act_map[8] = 3
+    obs_act_map[9] = 1
+    obs_act_map[10] = 0
+    obs_act_map[13] = 2
+    obs_act_map[14] = 1
     repeat = True
     while repeat:
         for act, _ in action_counts.items():
             new_obs, new_acts, act_c, obs_c = sample_obs_from_action(hems_inst, act, 1)
             for (new_ob, new_act) in zip(new_obs, new_acts):
+                if new_ob not in obs_counts.keys():
+                    obs_counts[new_ob] = 0
                 obs_dif = (max_obs - obs_counts[new_ob])
                 if obs_dif > 0:
                     print(f"Upsampling {new_ob} observation.")
                     print(f"Action: {new_act}")
                     print()
+                    if int(new_act) != obs_act_map[int(new_ob)]:
+                        print(f"reference observation: {int(new_ob)}")
+                        print(f"reference action: {obs_act_map[int(new_ob)]}")
+                        print(f"inferred action: {int(new_act)}")
+                        print("failure")
+                        breakpoint()
                     new_observations.append(new_ob)
                     new_actions.append(new_act)
                     obs_counts[new_ob] = obs_counts[new_ob] + 1
@@ -382,7 +454,7 @@ def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
 
 def randints(count, *randint_args):
     ri = partial(randint, *randint_args)
-    return [(ri(), ri()) for _ in range(count)]
+    return [ri() for _ in range(count)]
 
 
 if __name__ == "__main__":
@@ -448,17 +520,6 @@ if __name__ == "__main__":
     LOG_SAV_LOC = "./bc_training_logs/"
     performance_name = None
 
-    # SETUP HEMS
-    # get a handle to the lisp subprocess with quicklisp loaded.
-    lisp = cl4py.Lisp(cmd=('sbcl', '--dynamic-space-size', '30000',
-                      '--script'), quicklisp=True, backtrace=True)
-
-    # Start quicklisp and import HEMS package
-    lisp.find_package('QL').quickload('HEMS')
-
-    # load hems and retain reference.
-    hems = lisp.find_package("HEMS")
-
     # SETUP ENV
     TOY_TEXT_ENV_NAMES = ["Blackjack-v1", "CliffWalking-v0", "FrozenLake-v1", "Taxi-v3"]
     
@@ -468,18 +529,22 @@ if __name__ == "__main__":
     all_returns=[]
     all_lengths=[]
     all_mode_action=[]
-    for seed in randints(10, 1, 100):
+    all_states = []
+    all_counts = []
+    all_sds = []
+    all_eps = []
+    for seed in randints(5, 1, 100):
         args.random_seed = seed
-        for agent in ['baseline', 'HEMS']:
-            if agent == 'baseline':
+        for agent in ['HEMS', 'Baseline']:
+            if agent == 'Baseline':
                 args.train_expert = True
                 args.train_hems = False
                 args.train_expert_hems = False
                 args.train_hems_expert = False
                 args.train_both = False
                 args.train_sampled_hems = False
-            elif agent = 'HEMS':
-                args.train_expert = False
+            elif agent == 'HEMS':
+                arargs.loadgs.train_expert = False
                 args.train_hems = True
                 args.train_expert_hems = False
                 args.train_hems_expert = False
@@ -487,11 +552,24 @@ if __name__ == "__main__":
                 args.train_sampled_hems = False
                 
             for ep_data in ['./ep_data_1', './ep_data_10', './ep_data_100', './ep_data_1000', './ep_data_10000']:
-                DEMO_DIR = os.path.join('./ep_data_10', ALGO+'_'+ENV_NAME+'_data.csv')
+                DEMO_DIR = os.path.join(ep_data, ALGO+'_'+ENV_NAME+'_data.csv')
                 # Set random seeds
                 torch.manual_seed(args.random_seed)
                 np.random.seed(args.random_seed)
 
+                
+                
+                # SETUP HEMS
+                # get a handle to the lisp subprocess with quicklisp loaded.
+                lisp = cl4py.Lisp(cmd=('sbcl', '--dynamic-space-size', '30000',
+                                       '--script'), quicklisp=True, backtrace=True)
+                
+                # Start quicklisp and import HEMS package
+                lisp.find_package('QL').quickload('HEMS')
+                
+                # load hems and retain reference.
+                hems = lisp.find_package("HEMS")
+                
                 if ENV_NAME in TOY_TEXT_ENV_NAMES:
                     # Toy Text
                     TOY_TEXT_BOOL = True
@@ -529,13 +607,29 @@ if __name__ == "__main__":
 
                 # TRAINING POLICY: continued training with HEMS
                 if args.train_hems:
+                    # Run HEMS model
+                    hems.init_eltm()
+                    hems.run_execution_trace(DEMO_DIR)
+
                     # Load HEMS model
-                    # hems_model = hems.load_eltm_from_file("filename")
-                    print("Loading ELTM")
-                    hems.load_eltm_from_file(HEMS_MODEL_DIR)
-                    print("Done")
+                    #print("Loading ELTM")
+                    #hems.load_eltm_from_file(HEMS_MODEL_DIR)
+                    #print("Done")
                     # Sample from HEMS model
                     obs, acts, act_counts, obs_counts = sample_from_hems(hems, NUM_HEMS_SAMPLES)
+                    stts = []
+                    cnts = []
+                    sds = []
+                    ep_datas = []
+                    for (obss, count) in obs_counts.items():
+                        stts.append(obss)
+                        cnts.append(count)
+                        sds.append(seed)
+                        ep_datas.append(int(ep_data.split('_')[-1]))
+                    all_states.extend(stts)
+                    all_counts.extend(cnts)
+                    all_sds.extend(sds)
+                    all_eps.extend(ep_datas)
                     observations, actions = balance_observation_samples(hems, obs, acts, act_counts, obs_counts)
                     #observations, actions = balance_action_samples(hems, obs, acts, act_counts, obs_counts)
                     
@@ -697,7 +791,8 @@ if __name__ == "__main__":
                     save_path = os.path.join(MODEL_SAVE_LOC, f"{ep_data}_{performance_name}_{seed}.pkl")
                     trained_pi.save(save_path)
 
-
+                hems = None
+                lisp = None
                 # EVALUATE POLICY
                 if args.eval:
                     if args.load is not None:
@@ -706,6 +801,8 @@ if __name__ == "__main__":
                         performance_name = args.load.replace(".pkl", "")
                     max_steps = 1000  # env.spec.timestep_limit
                     returns = []
+                    seeds = []
+                    agent_types = []
                     mode_action = []
                     lengths = []
                     for i in range(1000):
@@ -735,6 +832,8 @@ if __name__ == "__main__":
                             #     break
                         returns.append(totalr)
                         lengths.append(steps)
+                        seeds.append(seed)
+                        agent_types.append(agent)
                         np_actions = np.array(actions)
                         mode_action.append(stats.mode(np_actions)[0])
 
@@ -749,10 +848,13 @@ if __name__ == "__main__":
                     all_lengths.extend(lengths)
                     all_mode_action.extend(mode_action)
     log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_policy_eval.csv")
+    log_st_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_state_distribution.csv")
     returns_data = pd.DataFrame(
         {"Seed": all_seeds,"Agent": all_agent_types, "Return": all_returns, "Length": all_lengths, "Most Common Action": all_mode_action})
     returns_data.to_csv(log_path)
-
+    state_dist_data = pd.DataFrame(
+        {"Seed": all_sds, "Num_Examples": all_eps, "State": all_states, "Count": all_counts})
+    state_dist_data.to_csv(log_st_path)
     # JUST TESTING STUFF
     if args.test:
         hems.run_execution_trace(DEMO_DIR)
