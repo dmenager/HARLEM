@@ -223,11 +223,11 @@ def sample_obs(hems_inst, obs, n_samples=1):
     with tempfile.NamedTemporaryFile() as fp:
         p = inflect.engine()
         observed = p.number_to_words(obs).replace('-', '_').replace(' ', '_').upper()
-        fp.write(bytes(f"c1 = (percept-node {observed} :value \"{obs}\")\n", 'utf-8'))
+        fp.write(bytes(f"c1 = (percept-node {observed}_1 :value \"{obs}\")\n", 'utf-8'))
         fp.write(bytes(f"c2 = (relation-node NUMBER_1 :value \"{obs}\")\n", 'utf-8'))
         fp.write(bytes(f"c2 -> c1\n", 'utf-8'))
         fp.seek(0)
-        evidence_bn = hems_inst.compile_program_from_file(fp.name)
+        observation_bn = hems_inst.compile_program_from_file(fp.name)
     observations = []
     actions = []
     action_counts = dict()
@@ -235,8 +235,9 @@ def sample_obs(hems_inst, obs, n_samples=1):
     failures = 0
     count = 0
     while (len(observations) < n_samples):
+        (evidence_bn, backlinks) = hems.make_temporal_episode_retrieval_cue(hems.get_eltm(), observation=observation_bn)
         hems_sample = hems_inst.py_conditional_sample(hems_inst.get_eltm(
-        ), evidence_bn, "state-transitions", hiddenstatep=True, outputperceptsp=True)
+        ), evidence_bn, "state-transitions", hiddenstatep=True, outputperceptsp=True, backlinks=backlinks)
 
         # convert
         _, obs, act = dissect_hems_sample(hems_sample)
@@ -319,12 +320,12 @@ def sample_from_hems(hems_inst, n_samples):
         _, obs, act = dissect_hems_sample(hems_sample)
         if (obs is None) or (act is None):
             continue
-        if int(act) != obs_act_map[int(obs)]:
-            print(f"reference observation: {int(obs)}")
-            print(f"reference action: {obs_act_map[int(obs)]}")
-            print(f"inferred action: {int(act)}")
-            print("failure")
-            breakpoint()
+        #if int(act) != obs_act_map[int(obs)]:
+        #    print(f"reference observation: {int(obs)}")
+        #    print(f"reference action: {obs_act_map[int(obs)]}")
+        #    print(f"inferred action: {int(act)}")
+        #    print("failure")
+        #    breakpoint()
         observations.append(obs)
         actions.append(act)
 
@@ -345,15 +346,12 @@ Balancing Observation Samples
 sampled state distribution
 {4: 1135, 0: 969, 8: 762, 14: 205, 13: 218, 9: 361, 2: 87, 10: 107, 3: 78, 6: 40, 1: 38}
 '''
-def balance_observation_samples (hems_inst, observations, actions, action_counts, obs_counts):
+def balance_observation_samples (hems_inst, observations, actions, obs_counts, training_obs):
     print("Balancing Observation Samples")
     max_act = -1
     max_obs = -1
     new_observations = observations
     new_actions = actions
-    for act, count in action_counts.items():
-        if count > max_act:
-            max_act = count
     for obs, count in obs_counts.items():
         if count > max_obs:
             max_obs = count
@@ -372,22 +370,24 @@ def balance_observation_samples (hems_inst, observations, actions, action_counts
     obs_act_map[14] = 1
     repeat = True
     while repeat:
-        for act, _ in action_counts.items():
-            new_obs, new_acts, act_c, obs_c = sample_obs_from_action(hems_inst, act, 1)
-            for (new_ob, new_act) in zip(new_obs, new_acts):
-                if new_ob not in obs_counts.keys():
-                    obs_counts[new_ob] = 0
-                obs_dif = (max_obs - obs_counts[new_ob])
-                if obs_dif > 0:
+        for obs in training_obs:
+            obs = int(obs)
+            if obs not in obs_counts:
+                obs_counts[obs] = 0
+            count = obs_counts[obs]
+            obs_dif = (max_obs - count)
+            if obs_dif > 0:
+                new_obs, new_acts, act_c, obs_c = sample_obs(hems_inst, obs, 1)
+                for (new_ob, new_act) in zip(new_obs, new_acts):
                     print(f"Upsampling {new_ob} observation.")
                     print(f"Action: {new_act}")
                     print()
-                    if int(new_act) != obs_act_map[int(new_ob)]:
-                        print(f"reference observation: {int(new_ob)}")
-                        print(f"reference action: {obs_act_map[int(new_ob)]}")
-                        print(f"inferred action: {int(new_act)}")
-                        print("failure")
-                        breakpoint()
+                    #if int(new_act) != obs_act_map[int(new_ob)]:
+                    #    print(f"reference observation: {int(new_ob)}")
+                    #    print(f"reference action: {obs_act_map[int(new_ob)]}")
+                    #    print(f"inferred action: {int(new_act)}")
+                    #    print("failure")
+                    #    breakpoint()
                     new_observations.append(new_ob)
                     new_actions.append(new_act)
                     obs_counts[new_ob] = obs_counts[new_ob] + 1
@@ -515,7 +515,7 @@ if __name__ == "__main__":
     RENDER = args.render
     N_EPOCHS = args.n_epochs
     TOY_TEXT_BOOL = False
-    NUM_HEMS_SAMPLES = 4000
+    NUM_HEMS_SAMPLES = 5000
     MODEL_SAVE_LOC = "./bc_trained_agents/"
     LOG_SAV_LOC = "./bc_training_logs/"
     performance_name = None
@@ -533,7 +533,7 @@ if __name__ == "__main__":
     all_counts = []
     all_sds = []
     all_eps = []
-    for seed in randints(5, 1, 100):
+    for seed in [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]:#randints(5, 1, 100):
         args.random_seed = seed
         for agent in ['HEMS', 'Baseline']:
             if agent == 'Baseline':
@@ -544,19 +544,18 @@ if __name__ == "__main__":
                 args.train_both = False
                 args.train_sampled_hems = False
             elif agent == 'HEMS':
-                arargs.loadgs.train_expert = False
+                args.train_expert = False
                 args.train_hems = True
                 args.train_expert_hems = False
                 args.train_hems_expert = False
                 args.train_both = False
                 args.train_sampled_hems = False
                 
-            for ep_data in ['./ep_data_1', './ep_data_10', './ep_data_100', './ep_data_1000', './ep_data_10000']:
+            for ep_data in ['./ep_data_1', './ep_data_10', './ep_data_100', './ep_data_1000']: #['./ep_data_1', './ep_data_10', './ep_data_100', './ep_data_1000', './ep_data_10000']:
                 DEMO_DIR = os.path.join(ep_data, ALGO+'_'+ENV_NAME+'_data.csv')
                 # Set random seeds
                 torch.manual_seed(args.random_seed)
                 np.random.seed(args.random_seed)
-
                 
                 
                 # SETUP HEMS
@@ -608,6 +607,10 @@ if __name__ == "__main__":
                 # TRAINING POLICY: continued training with HEMS
                 if args.train_hems:
                     # Run HEMS model
+                    df = pd.read_csv(DEMO_DIR)
+                    observations = df["Observation"].unique()
+                    for i, obs in enumerate(observations):
+                        observations[i]=obs[1:-1]
                     hems.init_eltm()
                     hems.run_execution_trace(DEMO_DIR)
 
@@ -630,7 +633,7 @@ if __name__ == "__main__":
                     all_counts.extend(cnts)
                     all_sds.extend(sds)
                     all_eps.extend(ep_datas)
-                    observations, actions = balance_observation_samples(hems, obs, acts, act_counts, obs_counts)
+                    observations, actions = balance_observation_samples(hems, obs, acts, obs_counts, observations)
                     #observations, actions = balance_action_samples(hems, obs, acts, act_counts, obs_counts)
                     
                     # Convert to database
@@ -847,14 +850,24 @@ if __name__ == "__main__":
                     all_returns.extend(returns)
                     all_lengths.extend(lengths)
                     all_mode_action.extend(mode_action)
-    log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_policy_eval.csv")
-    log_st_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_state_distribution.csv")
-    returns_data = pd.DataFrame(
-        {"Seed": all_seeds,"Agent": all_agent_types, "Return": all_returns, "Length": all_lengths, "Most Common Action": all_mode_action})
-    returns_data.to_csv(log_path)
-    state_dist_data = pd.DataFrame(
-        {"Seed": all_sds, "Num_Examples": all_eps, "State": all_states, "Count": all_counts})
-    state_dist_data.to_csv(log_st_path)
+                    current_df = pd.DataFrame(
+                        {"Seed": seeds, "Agent": agent_types, "Return": returns, "Length": lengths, "Most Common Action": mode_action}
+                    )
+                    dist_df = pd.DataFrame(
+                       {"Seed": sds, "Num_Examples": ep_datas, "State": stts, "Count": cnts}
+                    )
+                    log_path = os.path.join(LOG_SAV_LOC, f"{ep_data}_{performance_name}_{seed}_final_policy_eval.csv")
+                    log_st_path = os.path.join(LOG_SAV_LOC, f"{ep_data}_{performance_name}_{seed}_final_state_distribution.csv")
+                    current_df.to_csv(log_path)
+                    dist_df.to_csv(log_st_path)
+    #log_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_policy_eval.csv")
+    #log_st_path = os.path.join(LOG_SAV_LOC, f"{performance_name}_final_state_distribution.csv")
+    #returns_data = pd.DataFrame(
+    #    {"Seed": all_seeds,"Agent": all_agent_types, "Return": all_returns, "Length": all_lengths, "Most Common Action": all_mode_action})
+    #returns_data.to_csv(log_path)
+    #state_dist_data = pd.DataFrame(
+    #    {"Seed": all_sds, "Num_Examples": all_eps, "State": all_states, "Count": all_counts})
+    #state_dist_data.to_csv(log_st_path)
     # JUST TESTING STUFF
     if args.test:
         hems.run_execution_trace(DEMO_DIR)
