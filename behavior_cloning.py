@@ -25,6 +25,7 @@ from scipy import stats
 from functools import partial
 from random import randint
 import inflect
+import time
 
 class NNPolicy(nn.Module):
     def __init__(self, state_dim, hidden_dim, action_dim):
@@ -424,15 +425,18 @@ def balance_action_samples(hems_inst, observations, actions, action_counts, obs_
 
 def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
     loader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4)
+    #loader = DataLoader(dataset, batch_size=None, shuffle=True, num_workers=4)
     optimizer = optim.Adam(policy.parameters(), lr=1e-3)  # , weight_decay=0.001)
     criterion = nn.CrossEntropyLoss()
 
     # TRAIN POLICY
     print("Epoch,Batch,Loss")
     epoch_losses = []
+    times = []
     for epoch in range(num_epochs):
         running_loss = 0
         epoch_loss = 0
+        start = time.time()
         for i, data in enumerate(loader):
             s, a = data
             policy_dist = policy(s)
@@ -446,9 +450,11 @@ def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
                 print(f'{epoch},{i+1},{running_loss/20}')
                 running_loss = 0
             optimizer.step()
+        end = time.time()
+        times.append(end - start)
         epoch_losses.append(epoch_loss)
 
-    epoch_training_loss = pd.DataFrame({"Epoch": range(num_epochs), "Loss": epoch_losses})
+    epoch_training_loss = pd.DataFrame({"Epoch": range(num_epochs), "Loss": epoch_losses, "Elapsed Time": times})
 
     return policy, epoch_training_loss
 
