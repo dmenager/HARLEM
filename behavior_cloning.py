@@ -26,6 +26,11 @@ from functools import partial
 from random import randint
 import inflect
 import time
+import sys
+
+from huggingface_sb3 import EnvironmentName
+from rl_zoo3 import ALGOS, get_saved_hyperparams
+from rl_zoo3.utils import get_model_path
 
 class NNPolicy(nn.Module):
     def __init__(self, state_dim, hidden_dim, action_dim):
@@ -429,6 +434,79 @@ def balance_action_samples(hems_inst, observations, actions, action_counts, obs_
     print(action_counts)
     return new_observations, new_actions
 
+def get_oracle(
+        str_env_name: str,
+        algo: str,
+        folder: str,
+        r_seed: int = 0,
+        norm_reward: bool = False,
+        device: str = "auto"
+):
+    """
+    This function runs the specified number of episodes in the singular, non-atari environment. 
+
+    params:
+        str_env_name : str
+            The environment name provided as a string. Ex. "CliffWalker-v0"
+        algo : str
+            The name of the algorithm used to train the agent being evaluated. This is needed to
+            properly load the trained agent. Ex. "ppo"
+        folder : str
+            The folder where the trained agent is located. Just the top level because the 
+            algorithm name and environment name will be used to complete the path.
+        r_seed : int = 0
+            Random seed for seeding the environment.
+        render : bool = False
+            Render the environment while running through the evaluation?
+        norm_reward : bool = False
+            Normalize the reward? This will scale things accross environments so all final scores 
+            are in the range 0-1.
+        device : str = "auto"
+            Run on GPU, CPU, or let the system decide based on what it can find?
+    """
+    # Build the environment
+    env_name = EnvironmentName(str_env_name)
+
+    _, model_path, log_path = get_model_path(
+        exp_id=0,
+        folder=folder,
+        algo=algo,
+        env_name=env_name,
+    )
+    
+    stats_path = os.path.join(log_path, env_name)
+    hyperparams, maybe_stats_path = get_saved_hyperparams(
+        stats_path, norm_reward=norm_reward, test_mode=True)
+
+    # Load the RL model
+    kwargs = dict(seed=r_seed)
+    off_policy_algos = ["qrdqn", "dqn", "ddpg", "sac", "her", "td3", "tqc"]
+    if algo in off_policy_algos:
+        # Dummy buffer size as we don't need memory to enjoy the trained agent
+        kwargs.update(dict(buffer_size=1))
+        # Hack due to breaking change in v1.6
+        # handle_timeout_termination cannot be at the same time
+        # with optimize_memory_usage
+        if "optimize_memory_usage" in hyperparams:
+            kwargs.update(optimize_memory_usage=False)
+
+    # Check if we are running python 3.8+
+    # we need to patch saved model under python 3.6/3.7 to load them
+    newer_python_version = sys.version_info.major == 3 and sys.version_info.minor >= 8
+
+    custom_objects = {}
+    if newer_python_version:
+        custom_objects = {
+            "learning_rate": 0.0,
+            "lr_schedule": lambda _: 0.0,
+            "clip_range": lambda _: 0.0,
+        }
+    np.set_printoptions(threshold=sys.maxsize)
+
+    if "HerReplayBuffer" in hyperparams.get("replay_buffer_class", ""):
+        kwargs["env"] = env
+
+    return ALGOS[algo].load(model_path, custom_objects=custom_objects, device=device, **kwargs)
 
 def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
     loader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4)
@@ -481,6 +559,10 @@ if __name__ == "__main__":
                         action="store_true", default=False,
                         help="Train policy on only HEMS-generated data.")
     parser.add_argument("--train-expert-hems",
+                        action="store_true", default=False,
+                        help="Train policy on expert data and then continue training with HEMS \
+                            data.")
+    parser.add_argument("--evaluate-oracle",
                         action="store_true", default=False,
                         help="Train policy on expert data and then continue training with HEMS \
                             data.")
@@ -549,11 +631,12 @@ if __name__ == "__main__":
     all_eps = []
     for seed in [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]:#randints(5, 1, 100):
         args.random_seed = seed
-        for agent in ['HEMS']:#['HEMS', 'Baseline']:
+        for agent in ['Expert']:#['HEMS', 'Baseline', 'Expert']:
             if agent == 'Baseline':
                 args.train_expert = True
                 args.train_hems = False
                 args.train_expert_hems = False
+                args.evaluate_oracle = False
                 args.train_hems_expert = False
                 args.train_both = False
                 args.train_sampled_hems = False
@@ -561,10 +644,18 @@ if __name__ == "__main__":
                 args.train_expert = False
                 args.train_hems = True
                 args.train_expert_hems = False
+                args.evaluate_oracle = False
                 args.train_hems_expert = False
                 args.train_both = False
                 args.train_sampled_hems = False
-                
+            elif agent == 'Expert':
+                args.train_expert = False
+                args.train_hems = False
+                args.train_expert_hems = False
+                args.evaluate_oracle = True
+                args.train_hems_expert = False
+                args.train_both = False
+                args.train_sampled_hems = False
             for ep_data in ['./ep_data_1', './ep_data_2', './ep_data_3', './ep_data_4', './ep_data_5', './ep_data_6', './ep_data_7', './ep_data_8', './ep_data_9', './ep_data_10']:#['./ep_data_100', './ep_data_200', './ep_data_300', './ep_data_400', './ep_data_500', './ep_data_600', './ep_data_700', './ep_data_800', './ep_data_900', './ep_data_1000']:
                 DEMO_DIR = os.path.join(ep_data, ALGO+'_'+ENV_NAME+'_data.csv')
                 # Set random seeds
@@ -619,7 +710,11 @@ if __name__ == "__main__":
                     # Save training data
                     log_path = os.path.join(LOG_SAV_LOC, f"{ep_data}_{performance_name}_{seed}.csv")
                     training_data.to_csv(log_path)
-
+                if args.evaluate_oracle:
+                    stts = []
+                    cnts = []
+                    sds = []
+                    ep_datas = []
                 # TRAINING POLICY: continued training with HEMS
                 if args.train_hems:
                     # Run HEMS model
@@ -814,10 +909,16 @@ if __name__ == "__main__":
                 lisp = None
                 # EVALUATE POLICY
                 if args.eval:
-                    if args.load is not None:
-                        load_path = os.path.join(MODEL_SAVE_LOC, args.load)
-                        trained_pi = NNPolicy.load(load_path)
-                        performance_name = args.load.replace(".pkl", "")
+                    if args.load is not None or args.evaluate_oracle == True:
+                        if args.load is not None:
+                            load_path = os.path.join(MODEL_SAVE_LOC, args.load)
+                            trained_pi = NNPolicy.load(load_path)
+                            performance_name = args.load.replace(".pkl", "")
+                        elif args.evaluate_oracle == True:
+                            # get the expert
+                            trained_pi = get_oracle(ENV_NAME, 'ppo', 'rl_experts')
+                            print(trained_pi)
+                            performance_name = f"expert_eval_{ENV_NAME}"
                     max_steps = 1000  # env.spec.timestep_limit
                     returns = []
                     seeds = []
