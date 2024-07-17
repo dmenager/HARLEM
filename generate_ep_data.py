@@ -441,7 +441,7 @@ if __name__ == "__main__":
         "SpaceInvadersNoFrameskip-v4"
     ]
     TEXT_ENVIRONMENTS = [
-        # "Blackjack-v1",
+        #"Blackjack-v1",
         "CliffWalking-v0",
         "Taxi-v3",
         "FrozenLake-v1"

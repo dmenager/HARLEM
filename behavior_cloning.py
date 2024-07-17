@@ -35,6 +35,7 @@ class NNPolicy(nn.Module):
         self.action_dim = action_dim
         self.linear_1 = nn.Linear(state_dim, hidden_dim)
         self.linear_2 = nn.Linear(hidden_dim, hidden_dim)
+        #self.linear_3 = nn.Linear(hidden_dim, hidden_dim)
         self.linear_out = nn.Linear(hidden_dim, action_dim)
 
     def forward(self, x):
@@ -44,8 +45,14 @@ class NNPolicy(nn.Module):
         x = self.linear_2(x)
         # x = F.leaky_relu(x, 0.001)
         x = F.tanh(x)
+        '''
+        x = self.linear_3(x)
+        # x = F.leaky_relu(x, 0.001)
+        x = F.tanh(x)
+        '''
         logits = self.linear_out(x)
-        return Categorical(logits=logits)
+        #return Categorical(logits=logits)
+        return logits
 
     def _get_constructor_parameters(self):
         """
@@ -215,7 +222,7 @@ def dissect_hems_sample(sample):
                 raise f"{key} is too large and unsupported"
         '''
         # if obs_num == 0.:
-        #     print(f'obs_dict: {obs_dict}, obs_num: {obs_num}')
+        #print(f'obs_dict: {obs_dict}, obs_num: {obs_num}')
         observation = obs_num
     print(f"Sampled state: {state}, observation: {observation}, action: {action}")
     return state, observation, action
@@ -440,7 +447,8 @@ def train_with_bc(policy: NNPolicy, dataset: ImitationDataset, num_epochs: int):
         for i, data in enumerate(loader):
             s, a = data
             policy_dist = policy(s)
-            loss = criterion(policy_dist.probs, a)
+            #loss = criterion(policy_dist.probs, a)
+            loss = criterion(policy_dist, a)
             running_loss += loss.item()
             epoch_loss += loss.item()
             optimizer.zero_grad()
@@ -541,7 +549,7 @@ if __name__ == "__main__":
     all_eps = []
     for seed in [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]:#randints(5, 1, 100):
         args.random_seed = seed
-        for agent in ['HEMS', 'Baseline']:
+        for agent in ['HEMS']:#['HEMS', 'Baseline']:
             if agent == 'Baseline':
                 args.train_expert = True
                 args.train_hems = False
@@ -557,12 +565,11 @@ if __name__ == "__main__":
                 args.train_both = False
                 args.train_sampled_hems = False
                 
-            for ep_data in ['./ep_data_1', './ep_data_10', './ep_data_100', './ep_data_1000']: #['./ep_data_1', './ep_data_10', './ep_data_100', './ep_data_1000', './ep_data_10000']:
+            for ep_data in ['./ep_data_1', './ep_data_2', './ep_data_3', './ep_data_4', './ep_data_5', './ep_data_6', './ep_data_7', './ep_data_8', './ep_data_9', './ep_data_10']:#['./ep_data_100', './ep_data_200', './ep_data_300', './ep_data_400', './ep_data_500', './ep_data_600', './ep_data_700', './ep_data_800', './ep_data_900', './ep_data_1000']:
                 DEMO_DIR = os.path.join(ep_data, ALGO+'_'+ENV_NAME+'_data.csv')
                 # Set random seeds
                 torch.manual_seed(args.random_seed)
                 np.random.seed(args.random_seed)
-                
                 
                 # SETUP HEMS
                 # get a handle to the lisp subprocess with quicklisp loaded.
@@ -596,7 +603,10 @@ if __name__ == "__main__":
                         expert_dataset.build_from_toy_text(demos)
                     else:
                         expert_dataset.build_from_atari(demos)
-                        
+                    stts = []
+                    cnts = []
+                    sds = []
+                    ep_datas = []
                     # print(expert_dataset.data)
                     # Train on expert database
                     trained_pi, training_data = train_with_bc(pi, expert_dataset, N_EPOCHS)
@@ -826,7 +836,8 @@ if __name__ == "__main__":
                             pi_dist = trained_pi(torch.tensor([obs], dtype=torch.float32))
                             # print(f'obs: {obs}, dist: {pi_dist.probs}, mode: {pi_dist.mode.item()}')
                             if ENV_NAME in TOY_TEXT_ENV_NAMES:
-                                a = pi_dist.mode.item()
+                                #a = pi_dist.mode.item()
+                                a = pi_dist.argmax().item()
                             else:
                                 a = pi_dist.mode.numpy()[0]
                             actions.append(a)
