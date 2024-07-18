@@ -11,7 +11,7 @@ def get_performance_results(dom):
     dfs = []
     d = dom.replace(" ", "")
     for fname in returns_data:
-        m = re.search('.*ep\_data\_([0-9]+)\_([a-z]+)\_*\_trained\_([a-zA-Z]+\-v[0-9])\_*', fname)
+        m = re.search('.*ep\_data\_([0-9]+)\_([a-z]+)\_.*\_([a-zA-Z]+\-v[0-9])\_*', fname)
         if m:
             num_trajectories = int(m.group(1))
             agent_type = m.group(2)
@@ -25,6 +25,7 @@ def get_performance_results(dom):
                 rows = len(df.index)
                 df['Num Expert Trajectories'] = [num_trajectories] * rows
                 dfs.append(df)
+    '''            
     for fname in returns_data:
         m = re.search('.*ep\_data\_([0-9]+)\_hems_trained\_([a-zA-Z]+\-v[0-9])\_*', fname)
         if m:
@@ -43,6 +44,7 @@ def get_performance_results(dom):
                 df["Agent"] = [agent_type] * rows
                 df["Return"] = [avg_ret] * rows
                 dfs.append(df)
+    '''
     returns_df = pd.concat(dfs).reset_index(drop=True)
     sns.lineplot(returns_df, x='Num Expert Trajectories', y='Return', hue='Agent')
     plt.title(dom)

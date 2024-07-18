@@ -917,7 +917,6 @@ if __name__ == "__main__":
                         elif args.evaluate_oracle == True:
                             # get the expert
                             trained_pi = get_oracle(ENV_NAME, 'ppo', 'rl_experts')
-                            print(trained_pi)
                             performance_name = f"expert_eval_{ENV_NAME}"
                     max_steps = 1000  # env.spec.timestep_limit
                     returns = []
@@ -934,11 +933,16 @@ if __name__ == "__main__":
                         steps = 0
                         actions = []
                         while (not (done or term)) and steps < max_steps:
-                            pi_dist = trained_pi(torch.tensor([obs], dtype=torch.float32))
+                            if args.evaluate_oracle == False:
+                                pi_dist = trained_pi(torch.tensor([obs], dtype=torch.float32))
                             # print(f'obs: {obs}, dist: {pi_dist.probs}, mode: {pi_dist.mode.item()}')
                             if ENV_NAME in TOY_TEXT_ENV_NAMES:
                                 #a = pi_dist.mode.item()
-                                a = pi_dist.argmax().item()
+                                if args.evaluate_oracle == True:
+                                    action, _ = trained_pi.predict(obs, deterministic=True)
+                                    a = action.item()
+                                else:
+                                    a = pi_dist.argmax().item()
                             else:
                                 a = pi_dist.mode.numpy()[0]
                             actions.append(a)
