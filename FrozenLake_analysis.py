@@ -6,6 +6,24 @@ import glob
 import os
 import re
 
+def get_event_memory_performance(dom):
+    #mem_data = glob.glob('bc_training/*memory_size*.csv')
+    mem_data = [f for f in os.listdir('bc_training_logs/') if re.search('.*[0-9]+.csv', f)]
+    dfs = []
+    d = dom.replace(" ", "")
+    for fname in mem_data:
+        m = re.search('ep\_data\_[0-9]+\_([a-zA-Z]+\-v[0-9])\_memory\_size\_[0-9]+.csv', fname)
+        if m:
+            domain = m.group(1)
+            if d.lower() in domain.lower():
+                df = pd.read_csv(f'bc_training_logs/{fname}')
+                dfs.append(df)
+    mem_df = pd.concat(dfs).reset_index(drop=True)
+    mem_df.to_csv('mem_df.csv')
+    sns.lineplot(mem_df, x='Observation', y='Num Schemas', hue='Num Trajectories', markers=['o','^', '<', 'p','*','.','s','P','|','_'], alpha=1/7)
+    plt.show()
+        
+    
 def get_performance_results(dom):
     returns_data = glob.glob('bc_training_logs/*policy_eval.csv')
     dfs = []
@@ -102,5 +120,7 @@ def plot_performance():
         ax.bar_label(i, label_type='center', padding=10)
     plt.show()
 if __name__ == "__main__":
-    get_performance_results("Frozen Lake")
-    get_loss_results("Frozen Lake")
+    #get_performance_results("Frozen Lake")
+    #get_loss_results("Frozen Lake")
+    get_event_memory_performance("Frozen Lake")
+    
