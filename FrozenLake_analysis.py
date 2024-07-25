@@ -16,11 +16,17 @@ def get_event_memory_performance(dom):
         if m:
             domain = m.group(1)
             if d.lower() in domain.lower():
-                df = pd.read_csv(f'bc_training_logs/{fname}')
+                df = pd.read_csv(f'bc_training_logs/{fname}')#.iloc[-1:]
                 dfs.append(df)
-    mem_df = pd.concat(dfs).reset_index(drop=True)
-    mem_df.to_csv('mem_df.csv')
-    sns.lineplot(mem_df, x='Observation', y='Num Schemas', hue='Num Trajectories', markers=['o','^', '<', 'p','*','.','s','P','|','_'], alpha=1/7)
+    mem_df = pd.concat(dfs).reset_index(drop=True)#.sort_values('Num Trajectories')
+    mem_df = mem_df.astype({"Domain": str, "Num Schemas": int, "Num Events": int, "Observation": int, "Num Trajectories": int})
+    mem_df = mem_df.dropna(axis='columns')
+    #mem_df = mem_df.drop_duplicates()
+    sns.lineplot(mem_df, x='Num Trajectories', y='Num Schemas')
+    plt.title(f"Stored event memory models for {dom}")
+    plt.show()
+    sns.lineplot(mem_df, x='Num Trajectories', y='Num Events')
+    plt.title(f"Modeled events in {dom}")
     plt.show()
         
     
@@ -64,7 +70,7 @@ def get_performance_results(dom):
                 dfs.append(df)
     '''
     returns_df = pd.concat(dfs).reset_index(drop=True)
-    sns.lineplot(returns_df, x='Num Expert Trajectories', y='Return', hue='Agent')
+    sns.lineplot(returns_df, x='Num Expert Trajectories', y='Return', hue='Agent', style='Agent')
     plt.title(dom)
     plt.ylabel("Reward")
     plt.show()
@@ -92,11 +98,11 @@ def get_loss_results(dom):
                 dfs.append(df)
     loss_df = pd.concat(dfs).reset_index(drop=True)
     print(loss_df)
-    sns.lineplot(loss_df, x='Epoch', y='Loss', hue='Agent')
+    sns.lineplot(loss_df, x='Epoch', y='Loss', hue='Agent', style='Agent')
     plt.title(dom)
     plt.show()
 
-    sns.lineplot(loss_df, x='Epoch', y='Elapsed Time', hue='Agent')
+    sns.lineplot(loss_df, x='Epoch', y='Elapsed Time', hue='Agent', style='Agent')
     plt.ylabel("Elapsed Time (s)")
     plt.title(dom)
     plt.show()
@@ -120,7 +126,10 @@ def plot_performance():
         ax.bar_label(i, label_type='center', padding=10)
     plt.show()
 if __name__ == "__main__":
-    #get_performance_results("Frozen Lake")
-    #get_loss_results("Frozen Lake")
+    get_performance_results("Frozen Lake")
+    get_loss_results("Frozen Lake")
     get_event_memory_performance("Frozen Lake")
-    
+
+    get_performance_results("Cliff Walking")
+    get_loss_results("Cliff Walking")
+    get_event_memory_performance("Cliff Walking")

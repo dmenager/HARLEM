@@ -656,7 +656,7 @@ if __name__ == "__main__":
                 args.train_hems_expert = False
                 args.train_both = False
                 args.train_sampled_hems = False
-            for ep_data in ['./ep_data_1', './ep_data_2', './ep_data_3', './ep_data_4', './ep_data_5', './ep_data_6', './ep_data_7', './ep_data_8', './ep_data_9', './ep_data_10']:#['./ep_data_10', './ep_data_20', './ep_data_30', './ep_data_40', './ep_data_50', './ep_data_60', './ep_data_70', './ep_data_80', './ep_data_90', './ep_data_100']:
+            for ep_data in ['./ep_data_10', './ep_data_20', './ep_data_30', './ep_data_40', './ep_data_50', './ep_data_60', './ep_data_70', './ep_data_80', './ep_data_90', './ep_data_100']:#['./ep_data_1', './ep_data_2', './ep_data_3', './ep_data_4', './ep_data_5', './ep_data_6', './ep_data_7', './ep_data_8', './ep_data_9', './ep_data_10']:
                 DEMO_DIR = os.path.join(ep_data, ALGO+'_'+ENV_NAME+'_data.csv')
                 # Set random seeds
                 torch.manual_seed(args.random_seed)
