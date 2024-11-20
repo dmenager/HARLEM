@@ -27,18 +27,20 @@ CliffWalking-v0:
   clip_range: lin_0.2
 
 Taxi-v3:
-  n_envs: 8
-  n_timesteps: !!float 1e5
+  n_envs: 32
+  n_timesteps: !!float 2e6
   policy: 'MlpPolicy'
-  n_steps: 32
-  batch_size: 256
-  gae_lambda: 0.8
-  gamma: 0.98
-  n_epochs: 20
+  n_steps: 2048
+  batch_size: 64
+  gae_lambda: 0.95
+  gamma: 0.999
+  n_epochs: 10
   ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
   learning_rate: lin_0.001
   clip_range: lin_0.2
-
+  
 FrozenLake-v1:
   n_envs: 8
   n_timesteps: !!float 1e5

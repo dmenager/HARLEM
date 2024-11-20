@@ -126,10 +126,10 @@ def plot_performance():
         ax.bar_label(i, label_type='center', padding=10)
     plt.show()
 if __name__ == "__main__":
-    get_performance_results("Frozen Lake")
-    get_loss_results("Frozen Lake")
-    get_event_memory_performance("Frozen Lake")
+    #get_performance_results("Frozen Lake")
+    #get_loss_results("Frozen Lake")
+    #get_event_memory_performance("Frozen Lake")
 
-    get_performance_results("Cliff Walking")
-    get_loss_results("Cliff Walking")
+    #get_performance_results("Cliff Walking")
+    #get_loss_results("Cliff Walking")
     get_event_memory_performance("Cliff Walking")
